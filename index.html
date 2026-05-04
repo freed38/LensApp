@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>LENS</title>
+<meta name="theme-color" content="#0c0b09">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LENS">
+<link rel="manifest" href="manifest.json">
+<!-- Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-YMVGKEC54R"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-YMVGKEC54R');
+</script>
+<link rel="apple-touch-icon" href="icon-192.svg">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* ── Reset ── */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#0c0b09;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+
+/* ── App shell: fixed, fills screen ── */
+#app{
+  position:fixed;inset:0;
+  display:flex;flex-direction:column;
+  background:#0c0b09;
+  font-family:'IBM Plex Sans',sans-serif;
+  color:rgba(255,255,255,0.75);
+}
+
+/* ── Pages ── */
+.page{
+  display:none;flex-direction:column;
+  /* fill everything above nav */
+  position:absolute;
+  top:0;left:0;right:0;
+  bottom:54px; /* nav height */
+  overflow:hidden;
+}
+.page.active{display:flex}
+
+/* ── Viewfinder ── */
+.vf{
+  position:relative;
+  flex:1;
+  overflow:hidden;
+  background:#000;
+  min-height:0; /* important for flex shrink */
+}
+.vf video{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  object-fit:cover;
+  transition:filter .2s;
+}
+.vf canvas{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  pointer-events:none;
+}
+.vf-overlay{position:absolute;inset:0;pointer-events:none}
+
+/* Corners */
+.vc{position:absolute;width:14px;height:14px;pointer-events:none}
+.vc.tl{top:9px;left:9px;border-top:1px solid rgba(255,255,255,0.38);border-left:1px solid rgba(255,255,255,0.38)}
+.vc.tr{top:9px;right:9px;border-top:1px solid rgba(255,255,255,0.38);border-right:1px solid rgba(255,255,255,0.38)}
+.vc.bl{bottom:9px;left:9px;border-bottom:1px solid rgba(255,255,255,0.38);border-left:1px solid rgba(255,255,255,0.38)}
+.vc.br{bottom:9px;right:9px;border-bottom:1px solid rgba(255,255,255,0.38);border-right:1px solid rgba(255,255,255,0.38)}
+
+/* Focus ring */
+.focus-ring{
+  position:absolute;width:48px;height:48px;
+  border:1.5px solid #c8932a;border-radius:2px;
+  transform:translate(-50%,-50%);pointer-events:none;
+  opacity:0;transition:opacity .3s,transform .15s;
+}
+.focus-ring::before,.focus-ring::after{content:'';position:absolute;background:#c8932a}
+.focus-ring::before{top:50%;left:50%;transform:translate(-50%,-50%);width:10px;height:1px}
+.focus-ring::after{top:50%;left:50%;transform:translate(-50%,-50%);width:1px;height:10px}
+.focus-ring.show{opacity:1}
+.focus-ring.lock{opacity:.6;transform:translate(-50%,-50%) scale(.88)}
+
+/* HUD */
+.hud-top{position:absolute;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;pointer-events:none}
+.hud-top span,.hv{font-family:'IBM Plex Mono',monospace;font-size:11px;color:rgba(255,255,255,0.82);text-shadow:0 1px 5px rgba(0,0,0,.9)}
+.hud-badge{position:absolute;bottom:9px;left:50%;transform:translateX(-50%);font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.42);background:rgba(0,0,0,.35);padding:2px 8px;border-radius:2px;pointer-events:none;white-space:nowrap}
+.hud-btm{position:absolute;bottom:8px;left:12px;right:12px;display:flex;justify-content:space-between;pointer-events:none}
+.hud-s{font-family:'IBM Plex Mono',monospace;font-size:8px;color:rgba(255,255,255,.5)}
+
+/* Info button */
+.info-btn{
+  position:absolute;bottom:9px;right:11px;
+  width:24px;height:24px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.28);background:rgba(0,0,0,.4);
+  display:flex;align-items:center;justify-content:center;
+  font-family:'IBM Plex Mono',monospace;font-size:11px;
+  color:rgba(255,255,255,.52);cursor:pointer;z-index:5;
+}
+
+/* Info overlay */
+.info-ov{
+  position:absolute;inset:0;
+  background:rgba(10,9,8,.94);
+  display:none;flex-direction:column;
+  padding:16px 14px 12px;gap:10px;
+  z-index:10;overflow-y:auto;
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+}
+.info-ov.show{display:flex}
+.io-hdr{display:flex;justify-content:space-between;align-items:flex-start}
+.io-title{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500;color:#c8932a;letter-spacing:2px;text-transform:uppercase}
+.io-x{width:20px;height:20px;border:1px solid rgba(255, 255, 255, 0);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:9px;color:rgba(255,255,255,.3);flex-shrink:0}
+.io-div{height:1px;background:rgba(255,255,255,.06);flex-shrink:0}
+.io-sec{display:flex;flex-direction:column;gap:3px}
+.io-lbl{font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c8932a;letter-spacing:3px;text-transform:uppercase}
+.io-txt{font-family:'IBM Plex Sans',monospace;font-size:11px;color:rgba(255, 255, 255, 0.850);line-height:1.65;font-weight:300}
+.io-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.io-tag{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#c8932a;border:1px solid #c8932a;border-radius:2px;padding:1px 5px}
+.io-btn{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:3px;background:transparent;color:rgba(255, 255, 255, 0.850);border:1px solid rgba(255, 255, 255, 0.850);border-radius:2px;padding:11px 24px;cursor:pointer;margin-top:6px}
+
+/* Idle overlay */
+.idle{
+  position:absolute;inset:0;
+  background:rgba(10,9,8,.93);
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:12px;
+  z-index:20;
+}
+.idle.gone{display:none}
+.idle-tag{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:5px;color:rgba(255,255,255,.18)}
+.idle-title{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500;color:#fff;letter-spacing:4px}
+.idle-sub{font-family:'IBM Plex Sans',monospace;font-size:10px;color:rgba(255,255,255,.28);text-align:center;padding:0 32px;line-height:1.8;font-weight:300}
+.idle-btn{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:3px;background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:2px;padding:11px 24px;cursor:pointer;margin-top:6px}
+
+/* ── Bottom panel ── */
+.panel{background:#0f0e0c;border-top:1px solid rgba(255,255,255,.06);flex-shrink:0}
+.exp-panel{padding:12px 15px 9px;display:flex;flex-direction:column;gap:8px}
+.dial{display:flex;flex-direction:column;gap:3px}
+.dh{display:flex;justify-content:space-between;align-items:baseline}
+.dl{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#d1ba8f;letter-spacing:3px;text-transform:uppercase}
+.dv{font-family:'IBM Plex Mono',monospace;font-size:16px;color:#c8932a}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:2px;outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#c8932a;border:1.5px solid #0f0e0c;box-shadow:0 0 6px rgba(200,147,42,.5);cursor:pointer}
+input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#c8932a;border:1.5px solid #0f0e0c;cursor:pointer}
+
+/* EV */
+.evw{display:flex;flex-direction:column;gap:3px}
+.evh{display:flex;justify-content:space-between;align-items:center}
+.evl{font-family:'IBM Plex Mono',monospace;font-size:6.5px;color:#d1ba8f;letter-spacing:2px;text-transform:uppercase}
+.evt{position:relative;height:5px;background:#181510;border-radius:3px;border:1px solid #2a2218}
+.evm{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:#282018}
+.evf{position:absolute;top:1px;bottom:1px;border-radius:2px;transition:all .2s}
+.evn{position:absolute;top:-3px;bottom:-3px;width:2px;border-radius:1px;transform:translateX(-50%);transition:all .2s}
+.evtk{display:flex;justify-content:space-between}
+.evtk span{font-family:'IBM Plex Mono',monospace;font-size:6px;color:#282018}
+
+/* Grid panel */
+.grid-panel{padding:12px 0 10px;display:flex;flex-direction:column;gap:8px}
+.gp-lbl{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:4px;color:#5a4e38;text-transform:uppercase;padding:0 14px;margin-bottom:2px}
+.gp-row{display:flex;gap:10px;padding:0 14px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.gp-row::-webkit-scrollbar{display:none}
+.gp-btn{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;opacity:.3;transition:opacity .2s}
+.gp-btn.active{opacity:1}
+.gp-thumb{width:58px;height:40px;border-radius:4px;background:#141210;border:1px solid rgba(255,255,255,.12);overflow:hidden}
+.gp-btn.active .gp-thumb{border-color:rgba(255,255,255,.75);background:#1a1816}
+.gp-thumb svg{width:100%;height:100%}
+.gp-name{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:1px;color:rgba(255,255,255,.3);text-transform:uppercase;white-space:nowrap}
+.gp-btn.active .gp-name{color:rgba(255,255,255,.85)}
+.gp-butt{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:3px;background:transparent;color:rgba(255, 255, 255, 0.850);border:1px solid rgba(255, 255, 255, 0.850);border-radius:2px;padding:11px 24px;cursor:pointer;margin-top:6px}
+
+
+/* Bokeh panel */
+.bk-panel{padding:12px 15px 9px;display:flex;flex-direction:column;gap:9px}
+.lens-row{display:flex;gap:9px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.lens-row::-webkit-scrollbar{display:none}
+.lb{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;opacity:.28;transition:opacity .2s}
+.lb.active{opacity:1}
+.li{width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center}
+.lb.active .li{border-color:rgba(200,147,42,.75)}
+.li svg{width:26px;height:26px}
+.ln{font-family:'IBM Plex Mono',monospace;font-size:6px;letter-spacing:.5px;color:rgba(255,255,255,.25);text-align:center;line-height:1.4;white-space:nowrap}
+.lb.active .ln{color:rgba(255,255,255,.72)}
+.bk-dial{display:flex;flex-direction:column;gap:5px}
+.bk-hdr{display:flex;justify-content:space-between;align-items:baseline}
+.bk-val{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:500;color:#c8932a;line-height:1}
+.bk-marks{display:flex;justify-content:space-between;padding:0 1px}
+.bm{font-family:'IBM Plex Mono',monospace;font-size:6.5px;color:#3a3020}
+.bm.on{color:#c8932a}
+.bk-char{display:flex;gap:9px;align-items:center}
+.bci svg{width:24px;height:24px}
+.bct{display:flex;flex-direction:column;gap:1px}
+.bcn{font-family:'IBM Plex Mono',monospace;font-size:8px;color:rgba(255,255,255,.6);letter-spacing:1px}
+.bcd{font-family:'IBM Plex Sans',monospace;font-size:7.5px;color:rgba(255,255,255,.3);line-height:1.45;font-weight:300}
+
+/* Cam toggle */
+.cam-btn{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:2px;background:transparent;border-radius:2px;padding:7px 0;cursor:pointer;width:calc(100% - 28px);margin:0 14px 9px;text-transform:uppercase;transition:all .2s;display:block}
+.cam-btn.off{color:#4a7a5a;border:1px solid #3a5a42}
+.cam-btn.on{color:#7a3030;border:1px solid #5a2a2a}
+
+/* About page */
+.about-page{flex:1;overflow-y:auto;background:#0f0e0c;-webkit-overflow-scrolling:touch}
+.about-inner{padding:20px 16px 28px;display:flex;flex-direction:column;gap:14px}
+.about-logo{font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:500;letter-spacing:8px;color:#f1b337}
+.about-ver{font-family:'IBM Plex Mono',monospace;font-size:7px;color:rgba(255, 255, 255, 0.850);letter-spacing:3px;margin-top:-6px}
+.about-desc{font-family:'IBM Plex Sans',monospace;font-size:10px;color:rgba(255, 255, 255, 0.850);line-height:1.7;font-weight:300}
+.about-div{height:1px;background:rgba(255,255,255,.06)}
+.a-stitle{font-family:'IBM Plex Mono',monospace;font-size:14px;color:rgba(255, 255, 255, 0.850);letter-spacing:4px;text-transform:uppercase;margin-bottom:8px}
+.how{display:flex;flex-direction:column;gap:8px}
+.hw{display:flex;gap:9px;align-items:flex-start}
+.hn{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#f1b337;flex-shrink:0;margin-top:1px;width:16px}
+.ht{font-family:'IBM Plex Sans',monospace;font-size:10px;color:rgba(255, 255, 255, 0.850);line-height:1.55;font-weight:300}
+.ht b{color:rgba(255, 255, 255, 0.850);font-weight:550}
+.ar{display:flex;flex-direction:column;gap:2px}
+.ak{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:3px;color:#f1b337;text-transform:uppercase}
+.av{font-family:'IBM Plex Sans',monospace;font-size:10px;color:rgba(255, 255, 255, 0.850);font-weight:300}
+.av.link{color:#f1b337}
+
+/* Glossary */
+.glossary{display:flex;flex-direction:column}
+.gl-item{border-bottom:1px solid rgba(255,255,255,.06)}
+.gl-item:last-child{border-bottom:none}
+.gl-term{display:flex;justify-content:space-between;align-items:center;padding:12px 0;cursor:pointer}
+.gl-term-name{font-family:'IBM Plex Mono',monospace;font-size:12px;color:#f1b337;letter-spacing:1px}
+.gl-term-en{font-family:'IBM Plex Mono',monospace;font-size:12px;color:#5a4e38;letter-spacing:1px}
+.gl-arrow{font-size:8px;color:#5a4e38;transition:transform .25s;flex-shrink:0;margin-left:6px}
+.gl-item.open .gl-arrow{transform:rotate(180deg);color:#c8932a}
+.gl-body{max-height:0;overflow:hidden;transition:max-height .3s ease,padding .3s ease;padding:0}
+.gl-item.open .gl-body{max-height:200px;padding-bottom:10px}
+.gl-def{font-family:'IBM Plex Sans',monospace;font-size:10px;color:rgba(255, 255, 255, 0.850);line-height:1.65;font-weight:300}
+.gl-example{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.gl-tag{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#c8932a;border:1px solid #c8932a;border-radius:2px;padding:1px 5px}
+
+/* Donate */
+.don{display:flex;align-items:center;justify-content:center;gap:8px;border:1px solid #f1b337;border-radius:2px;padding:10px;background:transparent;cursor:pointer;text-decoration:none !important}
+.don span{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:2px;color:#f1b337;text-transform:uppercase}
+.about-footer{font-family:'IBM Plex Mono',monospace;font-size:7px;color:#2a2018;letter-spacing:2px;text-align:center}
+
+/* ── Nav bar — fixed at bottom ── */
+#nav{
+  position:fixed;
+  bottom:0;left:0;right:0;
+  height:54px;
+  background:#0c0b09;
+  border-top:1px solid rgba(255, 255, 255, 0);
+  display:flex;
+  z-index:100;
+  /* safe area for iPhone */
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+.ni{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;position:relative}
+.ni::after{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:0;height:1.5px;background:#c8932a;transition:width .2s}
+.ni.on::after{width:22px}
+.ni-i{font-size:20px;color:rgba(255, 255, 255, 0.850);line-height:1;transition:color .2s}
+.ni.on .ni-i{color:#c8932a}
+.ni-t{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1.25px;color:rgba(255, 255, 255, 0.850);text-transform:uppercase;transition:color .2s}
+.ni.on .ni-t{color:rgba(200,147,42,.72)}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ═══════════════════════ PAGE 1: EXPOSURE ═══════════════════════ -->
+<div class="page active" id="p-exp">
+  <div class="vf" id="vf-exp">
+    <video id="vid-exp" autoplay playsinline muted></video>
+    <canvas id="noise-c" style="image-rendering:pixelated;mix-blend-mode:overlay"></canvas>
+    <div class="vf-overlay" id="vignette"></div>
+    <div class="vf-overlay" id="color-cast"></div>
+    <div class="vf-overlay" id="overexpose" style="background:rgba(255,255,255,0)"></div>
+    <div class="vc tl"></div><div class="vc tr"></div>
+    <div class="vc bl"></div><div class="vc br"></div>
+    <div class="focus-ring" id="focus-ring"></div>
+    <div class="hud-top">
+      <span id="h-iso">ISO 100</span>
+      <span id="h-ap">ƒ/5.6</span>
+      <span id="h-sh">1/60s</span>
+    </div>
+    <div class="hud-btm">
+      <span class="hud-s" id="h-motion"></span>
+      <span class="hud-s" id="h-noise"></span>
+    </div>
+    <div class="info-btn" id="exp-ib">i</div>
+    <!-- Info overlay -->
+    <div class="info-ov" id="exp-io">
+      <div class="io-hdr"><div class="io-title">Exposure Triangle</div><div class="io-x" id="exp-ix">✕</div></div>
+      <div class="io-div"></div>
+      <div class="io-sec"><div class="io-lbl">ISO</div><div class="io-txt">Sensor sensitivity. ISO 100 — clean image, needs lots of light. ISO 6400 — brighter, but noise appears.</div></div>
+      <div class="io-sec"><div class="io-lbl">Aperture</div><div class="io-txt">Lens opening size. ƒ/1.4 — wide open, blurred background (bokeh). ƒ/16 — closed, everything sharp.</div></div>
+      <div class="io-sec"><div class="io-lbl">Shutter Speed</div><div class="io-txt">Time the shutter stays open. 1/1000 — freezes motion. 1/30 — motion blur, use a tripod.</div></div>
+      <div class="io-div"></div>
+      <div class="io-sec"><div class="io-lbl">Triangle</div><div class="io-txt">All three parameters control exposure together. Change one — compensate with another.</div></div>
+      <div class="io-tags">
+        <span class="io-tag">ISO ↑ = noise ↑</span>
+        <span class="io-tag">ƒ/ ↓ = bokeh ↑</span>
+        <span class="io-tag">1/t ↓ = blur ↑</span>
+      </div>
+      <button class="io-btn" id='btn-io'>Close</button>
+    </div>
+    <!-- Idle -->
+    <div class="idle" id="idle-exp">
+      <div class="idle-tag">◈ LENS ◈</div>
+      <div class="idle-title">EXPOSURE</div>
+      <div class="idle-sub">ISO · Aperture · Shutter Speed<br>See how the image changes</div>
+      <button class="idle-btn" onclick="startCam('exp')">▶ Enable Camera</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="exp-panel">
+      <div class="dial">
+        <div class="dh"><span class="dl">ISO</span><span class="dv" id="v-iso">100</span></div>
+        <input type="range" id="sl-iso" min="0" max="6" value="0" oninput="updateExp()">
+      </div>
+      <div class="dial">
+        <div class="dh"><span class="dl">Aperture</span><span class="dv" id="v-ap">ƒ/5.6</span></div>
+        <input type="range" id="sl-ap" min="0" max="9" value="5" oninput="updateExp()">
+      </div>
+      <div class="dial">
+        <div class="dh"><span class="dl">Shutter</span><span class="dv" id="v-sh">1/60</span></div>
+        <input type="range" id="sl-sh" min="0" max="11" value="5" oninput="updateExp()">
+      </div>
+      <div class="evw">
+        <div class="evh"><span class="evl">Exposure</span><span class="evl" id="ev-val" style="font-size:9px">0.0 EV · Норма</span></div>
+        <div class="evt"><div class="evm"></div><div class="evf" id="ev-fill"></div><div class="evn" id="ev-needle"></div></div>
+        <div class="evtk"><span>DARK</span><span>NORMAL</span><span>BRIGHT</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ PAGE 2: GRIDS ═══════════════════════ -->
+<div class="page" id="p-grid">
+  <div class="vf" id="vf-grid">
+    <video id="vid-grid" autoplay playsinline muted></video>
+    <canvas id="grid-c"></canvas>
+    <div class="vc tl"></div><div class="vc tr"></div>
+    <div class="vc bl"></div><div class="vc br"></div>
+    <div class="hud-badge" id="grid-badge">RULE OF THIRDS</div>
+    <div class="info-btn" id="grid-ib">i</div>
+    <div class="info-ov" id="grid-io">
+      <div class="io-hdr"><div class="io-title">Composition Grids</div><div class="io-x" id="grid-ix">✕</div></div>
+      <div class="io-div"></div>
+      <div class="io-sec"><div class="io-lbl">What is Composition</div><div class="io-txt">How you arrange elements in a frame. Good composition guides the viewer's eye.</div></div>
+      <div class="io-sec"><div class="io-lbl">Rule of Thirds</div><div class="io-txt">Place your subject on the lines — the frame becomes more dynamic.</div></div>
+      <div class="io-sec"><div class="io-lbl">Golden Spiral</div><div class="io-txt">The spiral's center is the focal point. A classic of painting and photography.</div></div>
+      <div class="io-sec"><div class="io-lbl">Diagonal Lines</div><div class="io-txt">Lead the horizon line diagonally — creates dynamism and depth.</div></div>
+      <div class="io-div"></div>
+      <div class="io-tags">
+        <span class="io-tag">Portrait → Thirds</span>
+        <span class="io-tag">Landscape → Golden</span>
+        <span class="io-tag">Action → Diagonal</span>
+      </div>
+      <button class="gp-butt" id='butt-gp'>Close</button>
+    </div>
+    <div class="idle" id="idle-grid">
+      <div class="idle-tag">◈ LENS ◈</div>
+      <div class="idle-title">GRIDS</div>
+      <div class="idle-sub">Choose a grid — see how it frames your shot</div>
+      <button class="idle-btn" onclick="startCam('grid')">▶ Enable Camera</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="grid-panel">
+      <div class="gp-lbl">Grid</div>
+      <div class="gp-row" id="grid-sel"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ PAGE 3: BOKEH ═══════════════════════ -->
+<div class="page" id="p-bokeh">
+  <div class="vf" id="vf-bokeh">
+    <video id="vid-bokeh" autoplay playsinline muted></video>
+    <div class="vc tl"></div><div class="vc tr"></div>
+    <div class="vc bl"></div><div class="vc br"></div>
+    <div class="hud-top">
+      <span id="h-bk-lens">CANON 50mm</span>
+      <span id="h-bk-ap">ƒ/1.2</span>
+    </div>
+    <div class="idle" id="idle-bokeh">
+      <div class="idle-tag">◈ LENS ◈</div>
+      <div class="idle-title">BOKEH</div>
+      <div class="idle-sub">Choose a lens and adjust aperture<br>See how the background blurs</div>
+      <button class="idle-btn" onclick="startCam('bokeh')">▶ Enable Camera</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="bk-panel">
+      <div class="lens-row" id="lens-sel"></div>
+      <div class="bk-dial">
+        <div class="bk-hdr"><span class="dl">Aperture</span><span class="bk-val" id="bk-val">ƒ/1.2</span></div>
+        <div class="bk-marks" id="bk-marks"></div>
+        <input type="range" id="sl-bk" min="0" max="100" value="0" oninput="updateBokeh()">
+      </div>
+      <div class="bk-char">
+        <div class="bci" id="bk-icon"></div>
+        <div class="bct">
+          <div class="bcn" id="bk-cname">МЯГКОЕ · КРУГЛОЕ</div>
+          <div class="bcd" id="bk-cdesc">Кремовое размытие без нервности</div>
+        </div>
+      </div>
+    </div>
+    <button class="cam-btn off" id="cb-bokeh" onclick="toggleCam('bokeh')">▶ Enable Camera</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════ PAGE 4: ABOUT ═══════════════════════ -->
+<div class="page" id="p-about">
+  <div class="about-page">
+    <div class="about-inner">
+      <div>
+        <div class="about-logo">LENS</div>
+        <div class="about-ver">VERSION 1.0 · 2026</div>
+      </div>
+      <div class="about-desc">Interactive camera simulator with live video. Learn photography through practice — adjust settings and see results in real time.</div>
+      <div class="about-div"></div>
+      <div>
+        <div class="a-stitle">How to Use</div>
+        <div class="how">
+          <div class="hw"><div class="hn">01</div><div class="ht">Tap <b>"Enable Camera"</b> and allow access</div></div>
+          <div class="hw"><div class="hn">02</div><div class="ht">На вкладке <b>Exposure</b> двигай слайдеры — смотри как меняется картинка</div></div>
+          <div class="hw"><div class="hn">03</div><div class="ht">Tap <b>ⓘ</b> in the viewfinder — there's an explanation of each setting</div></div>
+          <div class="hw"><div class="hn">04</div><div class="ht">На вкладке <b>Grids</b> выбирай сетку для помощи с композицией</div></div>
+          <div class="hw"><div class="hn">05</div><div class="ht">Tap the viewfinder on the Grids page — <b>repositions the focus point</b> of the spiral</div></div>
+          <div class="hw"><div class="hn">06</div><div class="ht">On the <b>Bokeh</b> tab, choose a lens and adjust the aperture</div></div>
+        </div>
+      </div>
+      <div class="about-div"></div>
+      <div>
+        <div class="a-stitle">Glossary</div>
+        <div class="glossary">
+          <div class="gl-item">
+            <div class="gl-term" onclick="toggleGl(this)"><span class="gl-term-name">ISO</span><div style="display:flex;align-items:center;gap:6px"><span class="gl-term-en">Light Sensitivity</span><span class="gl-arrow">▾</span></div></div>
+            <div class="gl-body"><div class="gl-def">ISO 100 — clean image, needs lots of light. ISO 6400 — shoot in the dark, but grain appears.</div><div class="gl-example"><span class="gl-tag">ISO 100 — outdoors</span><span class="gl-tag">ISO 800 — indoors</span><span class="gl-tag">ISO 6400 — night</span></div></div>
+          </div>
+          <div class="gl-item">
+            <div class="gl-term" onclick="toggleGl(this)"><span class="gl-term-name">Aperture</span><div style="display:flex;align-items:center;gap:6px"><span class="gl-term-en">Aperture · ƒ-number</span><span class="gl-arrow">▾</span></div></div>
+            <div class="gl-body"><div class="gl-def">Small ƒ-number (ƒ/1.4) — wide opening, more light, blurred background. Large (ƒ/16) — everything in focus.</div><div class="gl-example"><span class="gl-tag">ƒ/1.4 — bokeh</span><span class="gl-tag">ƒ/5.6 — versatile</span><span class="gl-tag">ƒ/16 — landscape</span></div></div>
+          </div>
+          <div class="gl-item">
+            <div class="gl-term" onclick="toggleGl(this)"><span class="gl-term-name">Shutter Speed</span><div style="display:flex;align-items:center;gap:6px"><span class="gl-term-en">Shutter Speed</span><span class="gl-arrow">▾</span></div></div>
+            <div class="gl-body"><div class="gl-def">1/1000s — freezes motion. 1/30s — motion blurs, use a tripod.</div><div class="gl-example"><span class="gl-tag">1/1000 — sport</span><span class="gl-tag">1/60 — portrait</span><span class="gl-tag">1/8 — blur</span></div></div>
+          </div>
+          <div class="gl-item">
+            <div class="gl-term" onclick="toggleGl(this)"><span class="gl-term-name">Exposure</span><div style="display:flex;align-items:center;gap:6px"><span class="gl-term-en">Exposure · EV</span><span class="gl-arrow">▾</span></div></div>
+            <div class="gl-body"><div class="gl-def">Total light hitting the sensor. EV 0 = normal, +2 = overexposed, −2 = too dark.</div><div class="gl-example"><span class="gl-tag">0 EV — ideal</span><span class="gl-tag">+2 EV — overexposed</span><span class="gl-tag">−2 EV — too dark</span></div></div>
+          </div>
+          <div class="gl-item">
+            <div class="gl-term" onclick="toggleGl(this)"><span class="gl-term-name">Bokeh</span><div style="display:flex;align-items:center;gap:6px"><span class="gl-term-en">Bokeh · 暈け</span><span class="gl-arrow">▾</span></div></div>
+            <div class="gl-body"><div class="gl-def">The aesthetic of out-of-focus blur. Achieved with a wide aperture. Character depends on the lens.</div><div class="gl-example"><span class="gl-tag">ƒ/1.4 — strong</span><span class="gl-tag">Helios — swirly</span><span class="gl-tag">Leica — dreamy</span></div></div>
+          </div>
+          <div class="gl-item">
+            <div class="gl-term" onclick="toggleGl(this)"><span class="gl-term-name">DOF</span><div style="display:flex;align-items:center;gap:6px"><span class="gl-term-en">Depth of Field</span><span class="gl-arrow">▾</span></div></div>
+            <div class="gl-body"><div class="gl-def">The zone where objects appear sharp. Shallow DOF (ƒ/1.4) — only the subject is sharp. Deep DOF (ƒ/16) — everything sharp.</div><div class="gl-example"><span class="gl-tag">Shallow → portrait</span><span class="gl-tag">Deep → landscape</span></div></div>
+          </div>
+          <div class="gl-item">
+            <div class="gl-term" onclick="toggleGl(this)"><span class="gl-term-name">Exposure Triangle</span><div style="display:flex;align-items:center;gap:6px"><span class="gl-term-en">Exposure Triangle</span><span class="gl-arrow">▾</span></div></div>
+            <div class="gl-body"><div class="gl-def">The relationship between ISO, aperture, and shutter speed. Changing one requires compensating with another — the basis of manual mode.</div><div class="gl-example"><span class="gl-tag">ISO ↑ → noise ↑</span><span class="gl-tag">ƒ ↓ → bokeh ↑</span><span class="gl-tag">1/t ↓ → blur ↑</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="about-div"></div>
+      <div>
+        <div class="a-stitle">Project</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="ar"><div class="ak">Made by</div><div class="av">Rodovolskiy Mikhail</div></div>
+          <div class="ar"><div class="ak">STACK</div><div class="av">HTML · Canvas · CSS· JS</div></div>
+          <div class="ar"><div class="ak">Telegram</div><div class="av">@misharodovolskiy</div></div>
+          <div class="ar"><div class="ak">GitHub</div><div class="av link">https://github.com/freed38</div></div>
+        </div>
+      </div>
+      <div class="about-div"></div>
+      <a href="https://buymeacoffee.com/michaelrodovolskiy" target="_blank" class="don"><span>🍺</span><span>Buy me a beer</span></a>
+      <a href="https://forms.gle/Z6PmwF7SaoAJtf1Y9" target="_blank" class="don"><span>Leave a Feedback</span></a>
+      <div class="about-footer">FREE · NO ADS</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ NAV ═══════════════════════ -->
+<div id="nav">
+  <div class="ni on" onclick="goTo('exp')"><div class="ni-i">◎</div><div class="ni-t">Exposure</div></div>
+  <div class="ni"     onclick="goTo('grid')"><div class="ni-i">⊞</div><div class="ni-t">Grids</div></div>
+  <div class="ni"     onclick="goTo('about')"><div class="ni-i">○</div><div class="ni-t">About</div></div>
+</div>
+
+</div><!-- #app -->
+
+<script>
+/* ════════ DATA ════════ */
+const ISO_V=[100,200,400,800,1600,3200,6400];
+const AP_V=[1.4,1.8,2.0,2.8,4.0,5.6,8.0,11,16,22];
+const SH_V=[
+  {l:'1/2000',v:1/2000},{l:'1/1000',v:1/1000},{l:'1/500',v:1/500},
+  {l:'1/250',v:1/250},{l:'1/125',v:1/125},{l:'1/60',v:1/60},
+  {l:'1/30',v:1/30},{l:'1/15',v:1/15},{l:'1/8',v:1/8},
+  {l:'1/4',v:1/4},{l:'1/2',v:1/2},{l:'1"',v:1}
+];
+const GRIDS=[
+  {id:'thirds',name:'Thirds',full:'RULE OF THIRDS',draw(c,w,h){S(c);for(let i=1;i<3;i++){L(c,w*i/3,0,w*i/3,h);L(c,0,h*i/3,w,h*i/3)}}},
+  {id:'golden',name:'Golden Ratio',full:'GOLDEN RATIO',draw(c,w,h){S(c);const a=0.382,b=0.618;L(c,w*a,0,w*a,h);L(c,w*b,0,w*b,h);L(c,0,h*a,w,h*a);L(c,0,h*b,w,h*b)}},
+  {id:'spiral',name:'Spiral',full:'GOLDEN SPIRAL',draw(c,w,h){drawSpiral(c,w,h)}},
+  {id:'diag',name:'Diagonal Lines',full:'DIAGONAL METHOD',draw(c,w,h){S(c);L(c,0,0,w,h);L(c,w,0,0,h);c.globalAlpha=0.32;L(c,0,0,w/2,h);L(c,0,0,w,h/2);L(c,w,0,w/2,h);L(c,w,0,0,h/2);L(c,0,h,w,h/2);L(c,0,h,w/2,0);L(c,w,h,0,h/2);L(c,w,h,w/2,0);c.globalAlpha=1}},
+  {id:'tri',name:'Triangle',full:'GOLDEN TRIANGLE',draw(c,w,h){S(c);const l=w*w+h*h;L(c,0,h,w,0);L(c,0,0,w*h*h/l,h*w*w/l);L(c,w,h,w*w*w/l,h*h*h/l)}},
+  {id:'sq',name:'1:1',full:'1:1 CROP',draw(c,w,h){const s=h,ox=(w-s)/2;S(c);c.fillStyle='rgba(0,0,0,0.35)';c.fillRect(0,0,ox,h);c.fillRect(w-ox,0,ox,h);c.strokeRect(ox,0,s,h);L(c,ox+s/3,0,ox+s/3,h);L(c,ox+s*2/3,0,ox+s*2/3,h);L(c,ox,h/3,ox+s,h/3);L(c,ox,h*2/3,ox+s,h*2/3)}},
+  {id:'fine',name:'4×4',full:'4×4 GRID',draw(c,w,h){S(c);for(let i=1;i<4;i++){L(c,w*i/4,0,w*i/4,h);L(c,0,h*i/4,w,h*i/4)}}},
+];
+const LENSES=[
+  {id:'canon',name:'Canon\n50mm',maxAp:1.2,minAp:22,cn:'МЯГКОЕ · КРУГЛОЕ',cd:'Кремовое размытие, идеальные окружности',svgI:`<circle cx="12" cy="12" r="9" fill="none" stroke="rgba(200,147,42,0.65)" stroke-width="1.5"/><circle cx="12" cy="12" r="4" fill="rgba(200,147,42,0.12)"/>`,bg:'rgba(60,80,110,0.85)',blur:ap=>Math.max(0,(1-Math.log(ap/1.2)/Math.log(22/1.2))*16)},
+  {id:'helios',name:'Гелиос\n44-2',maxAp:2.0,minAp:16,cn:'ВИХРЕВОЕ · ТЁПЛОЕ',cd:'Закрученное боке советских объективов',svgI:`<ellipse cx="12" cy="12" rx="9" ry="7" fill="none" stroke="rgba(200,147,42,0.6)" stroke-width="1.2" transform="rotate(20 12 12)"/><ellipse cx="12" cy="12" rx="4" ry="3" fill="rgba(200,147,42,0.1)" transform="rotate(40 12 12)"/>`,bg:'rgba(80,55,20,0.9)',blur:ap=>Math.max(0,(1-Math.log(ap/2.0)/Math.log(16/2.0))*11)},
+  {id:'leica',name:'Leica\nNoctilux',maxAp:0.95,minAp:16,cn:'ТУМАННОЕ · ЭФИРНОЕ',cd:'Мечтательное свечение, нет контуров',svgI:`<circle cx="12" cy="12" r="8" fill="none" stroke="rgba(200,147,42,0.3)" stroke-width="0.8"/><circle cx="12" cy="12" r="5" fill="none" stroke="rgba(200,147,42,0.22)" stroke-width="0.8"/><circle cx="12" cy="12" r="2" fill="rgba(200,147,42,0.18)"/>`,bg:'rgba(40,40,65,0.9)',blur:ap=>Math.max(0,(1-Math.log(ap/0.95)/Math.log(16/0.95))*20)},
+  {id:'voigt',name:'Voigt\n35mm',maxAp:1.2,minAp:22,cn:'ЧЁТКИЕ КРАЯ',cd:'Каждый кружок резко очерчен',svgI:`<circle cx="12" cy="12" r="9" fill="none" stroke="rgba(200,147,42,0.8)" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="rgba(200,147,42,0.08)"/>`,bg:'rgba(30,45,30,0.9)',blur:ap=>Math.max(0,(1-Math.log(ap/1.2)/Math.log(22/1.2))*14)},
+];
+
+/* ════════ STATE ════════ */
+let streams={exp:null,grid:null,bokeh:null};
+let noiseAlpha=0, focusX=50, focusY=50, focusT=null;
+let activeGrid=0, activeLens=0;
+
+const noiseC=document.getElementById('noise-c');
+const gridC=document.getElementById('grid-c');
+const nCtx=noiseC.getContext('2d');
+const gCtx=gridC.getContext('2d');
+
+/* ════════ HELPERS ════════ */
+function S(c){c.strokeStyle='#fff';c.lineWidth=1.2;c.globalAlpha=1}
+function L(c,x1,y1,x2,y2){c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke()}
+function A(c,cx,cy,r,a1,a2,ccw){c.beginPath();c.arc(cx,cy,r,a1,a2,ccw);c.stroke()}
+
+function drawSpiral(ctx,cw,ch){
+  const PI=Math.PI;ctx.save();
+  ctx.strokeStyle='#fff';ctx.lineWidth=1.2;
+  ctx.translate(cw,0);ctx.rotate(PI/2);
+  ctx.scale(ch/1618,cw/1000);
+  let x=0,y=0,w=1618,h=1000;
+  for(let i=0;i<7;i++){
+    const d=i%4;let s;
+    if(d===0){s=h;ctx.beginPath();ctx.moveTo(x+s,y);ctx.lineTo(x+s,y+s);ctx.stroke();A(ctx,x+s,y+s,s,-PI/2,PI,true);x+=s;w-=s}
+    else if(d===1){s=w;ctx.beginPath();ctx.moveTo(x,y+s);ctx.lineTo(x+s,y+s);ctx.stroke();A(ctx,x,y+s,s,0,-PI/2,true);y+=s;h-=s}
+    else if(d===2){s=h;ctx.beginPath();ctx.moveTo(x+w-s,y);ctx.lineTo(x+w-s,y+s);ctx.stroke();A(ctx,x+w-s,y,s,PI/2,0,true);w-=s}
+    else{s=w;ctx.beginPath();ctx.moveTo(x,y+h-s);ctx.lineTo(x+s,y+h-s);ctx.stroke();A(ctx,x+s,y+h-s,s,Math.PI,Math.PI/2,true);h-=s}
+  }
+  ctx.restore();
+}
+
+/* ════════ NAV ════════ */
+function goTo(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.ni').forEach(n=>n.classList.remove('on'));
+  document.getElementById('p-'+id).classList.add('active');
+  const idx={exp:0,grid:1,about:2}[id];
+  document.querySelectorAll('.ni')[idx].classList.add('on');
+  if(id==='grid') resizeGrid();
+}
+
+/* ════════ NOISE LOOP ════════ */
+(function loop(){
+  requestAnimationFrame(loop);
+  if(noiseAlpha<0.01){nCtx.clearRect(0,0,noiseC.width,noiseC.height);return}
+  const vf=document.getElementById('vf-exp');
+  const w=Math.floor(vf.offsetWidth/4)||60;
+  const h=Math.floor(vf.offsetHeight/4)||60;
+  if(noiseC.width!==w||noiseC.height!==h){noiseC.width=w;noiseC.height=h}
+  const img=nCtx.createImageData(w,h),d=img.data,a=(noiseAlpha*255)|0;
+  for(let i=0;i<d.length;i+=4){const v=(Math.random()*255)|0;d[i]=d[i+1]=d[i+2]=v;d[i+3]=a}
+  nCtx.putImageData(img,0,0);
+})();
+
+/* ════════ GRID RESIZE ════════ */
+function resizeGrid(){
+  const vf=document.getElementById('vf-grid');
+  gridC.width=vf.offsetWidth;
+  gridC.height=vf.offsetHeight;
+  drawGrid();
+}
+window.addEventListener('resize',()=>{
+  if(document.getElementById('p-grid').classList.contains('active')) resizeGrid();
+});
+
+function drawGrid(){
+  gCtx.clearRect(0,0,gridC.width,gridC.height);
+  GRIDS[activeGrid].draw(gCtx,gridC.width,gridC.height);
+}
+
+/* ════════ BUILD GRID SELECTOR ════════ */
+const gSel=document.getElementById('grid-sel');
+GRIDS.forEach((g,i)=>{
+  const btn=document.createElement('div');
+  btn.className='gp-btn'+(i===0?' active':'');
+  const th=document.createElement('div');th.className='gp-thumb';
+  const cv=document.createElement('canvas');
+  cv.width=116;cv.height=80;cv.style.width='58px';cv.style.height='40px';
+  const pc=cv.getContext('2d');
+  pc.fillStyle='#141210';pc.fillRect(0,0,116,80);
+  g.draw(pc,116,80);
+  th.appendChild(cv);
+  const nm=document.createElement('div');nm.className='gp-name';nm.textContent=g.name;
+  btn.appendChild(th);btn.appendChild(nm);
+  gSel.appendChild(btn);
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.gp-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    activeGrid=i;
+    document.getElementById('grid-badge').textContent=g.full;
+    drawGrid();
+  });
+});
+
+/* ════════ GRID TAP FOR FOCUS ════════ */
+document.getElementById('vf-grid').addEventListener('click',e=>{
+  if(!streams.grid)return;
+  const r=e.currentTarget.getBoundingClientRect();
+  focusX=((e.clientX-r.left)/r.width)*100;
+  focusY=((e.clientY-r.top)/r.height)*100;
+  drawGrid();
+});
+
+/* ════════ BUILD LENS SELECTOR ════════ */
+const lSel=document.getElementById('lens-sel');
+LENSES.forEach((l,i)=>{
+  const btn=document.createElement('div');
+  btn.className='lb'+(i===0?' active':'');
+  const ic=document.createElement('div');ic.className='li';
+  ic.style.background=`radial-gradient(circle at 38% 35%,${l.bg},rgba(8,8,6,0.98))`;
+  ic.innerHTML=`<svg viewBox="0 0 24 24">${l.svgI}</svg>`;
+  const nm=document.createElement('div');nm.className='ln';nm.textContent=l.name;
+  btn.appendChild(ic);btn.appendChild(nm);
+  lSel.appendChild(btn);
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.lb').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    activeLens=i;
+    document.getElementById('sl-bk').value=0;
+    buildBkMarks();
+    updateBokeh();
+  });
+});
+
+function buildBkMarks(){
+  const l=LENSES[activeLens];
+  const vals=[l.maxAp,2.8,5.6,11,l.minAp].filter((v,i,a)=>a.indexOf(v)===i&&v>=l.maxAp&&v<=l.minAp).sort((a,b)=>a-b);
+  const el=document.getElementById('bk-marks');
+  el.innerHTML=vals.map((v,i)=>`<span class="bm${i===0?' on':''}">${v}</span>`).join('');
+}
+buildBkMarks();
+
+/* ════════ EXPOSURE UPDATE ════════ */
+function updateExp(){
+  if(!streams.exp)return;
+  const ii=+document.getElementById('sl-iso').value;
+  const ai=+document.getElementById('sl-ap').value;
+  const si=+document.getElementById('sl-sh').value;
+  const iso=ISO_V[ii],ap=AP_V[ai],sh=SH_V[si];
+
+  document.getElementById('v-iso').textContent=iso;
+  document.getElementById('v-ap').textContent='ƒ/'+ap;
+  document.getElementById('v-sh').textContent=sh.l;
+
+  ['sl-iso','sl-ap','sl-sh'].forEach(id=>{
+    const el=document.getElementById(id);
+    const p=(el.value/el.max)*100;
+    el.style.background=`linear-gradient(to right,#c8932a ${p}%,#222018 ${p}%)`;
+  });
+
+  const ev=Math.log2(iso/100)+(-2*Math.log2(ap/5.6))+Math.log2(sh.v/(1/60));
+  const br=Math.min(4,Math.max(0.05,Math.pow(2,ev)));
+  const mb=sh.v>1/60?Math.log2(sh.v/(1/60))*2.5:0;
+  noiseAlpha=ii<=3?0:Math.pow((ii-3)/3,1.5)*0.45;
+
+  const f=['brightness('+br.toFixed(3)+')'];
+  if(mb>0.2)f.push('blur('+mb.toFixed(1)+'px)');
+  if(ii>=5)f.push('saturate('+(1-(ii-4)*0.12).toFixed(2)+')');
+  document.getElementById('vid-exp').style.filter=f.join(' ');
+
+  const vigOp=ap<=5.6?0.12+(1-Math.log(ap/1.4)/Math.log(5.6/1.4))*0.4:0.12;
+  const vigR=ap<=5.6?35+(Math.log(ap/1.4)/Math.log(5.6/1.4))*25:60;
+  document.getElementById('vignette').style.background=`radial-gradient(ellipse at center,transparent ${vigR}%,rgba(0,0,0,${vigOp.toFixed(2)}) 100%)`;
+
+  let cast='rgba(0,0,0,0)';
+  if(ev<-2)cast=`rgba(20,40,80,${Math.min(1,(-ev-2)/3)*0.22})`;
+  else if(ev>2)cast=`rgba(255,140,30,${Math.min(1,(ev-2)/3)*0.18})`;
+  if(ii>=5)cast=`rgba(180,60,80,${0.06*(ii-4)})`;
+  document.getElementById('color-cast').style.background=cast;
+
+  const ov=br>2?Math.min(0.92,(br-2)*0.5):0;
+  document.getElementById('overexpose').style.background=`rgba(255,255,255,${ov})`;
+
+  document.getElementById('h-iso').textContent='ISO '+iso;
+  document.getElementById('h-ap').textContent='ƒ/'+ap;
+  document.getElementById('h-sh').textContent=sh.l+'s';
+  document.getElementById('h-motion').textContent=sh.v<1/500?'FROZEN':sh.v>1/60?'MOTION BLUR':'';
+  document.getElementById('h-noise').textContent=ii>=3200?'NOISE':'';
+
+  const cl=Math.max(-4,Math.min(4,ev));
+  const pct=((cl+4)/8)*100;
+  const col=ev>1.5?'#c84040':ev<-1.5?'#4070c8':'#5ac88a';
+  const lbl=ev>1.5?'Overexposed':ev<-1.5?'Underexposed':'Normal';
+  document.getElementById('ev-val').textContent=(ev>0?'+':'')+ev.toFixed(1)+' EV · '+lbl;
+  document.getElementById('ev-val').style.color=col;
+  const fill=document.getElementById('ev-fill'),needle=document.getElementById('ev-needle');
+  fill.style.left=ev>=0?'50%':pct+'%';
+  fill.style.width=Math.abs(pct-50)+'%';
+  fill.style.background=col;
+  needle.style.left=pct+'%';
+  needle.style.background=col;
+  needle.style.boxShadow='0 0 5px '+col;
+}
+
+/* ════════ BOKEH UPDATE ════════ */
+function updateBokeh(){
+  const l=LENSES[activeLens];
+  const pct=+document.getElementById('sl-bk').value/100;
+  const lMin=Math.log(l.maxAp),lMax=Math.log(l.minAp);
+  const ap=Math.round(Math.exp(lMin+pct*(lMax-lMin))*10)/10;
+
+  document.getElementById('sl-bk').style.background=`linear-gradient(to right,#c8932a ${pct*100}%,#222018 ${pct*100}%)`;
+  document.getElementById('bk-val').textContent='ƒ/'+ap;
+  document.getElementById('h-bk-ap').textContent='ƒ/'+ap;
+  document.getElementById('h-bk-lens').textContent=l.name.replace('\n',' ').toUpperCase();
+
+  if(streams.bokeh) document.getElementById('vid-bokeh').style.filter=`blur(${l.blur(ap).toFixed(1)}px)`;
+
+  let cn=l.cn,cd=l.cd,si=l.svgI;
+  if(ap>6&&ap<=12){cn='МНОГОУГОЛЬНОЕ';cd='Форма лепестков диафрагмы';si=`<polygon points="12,4 16.5,8 18,13 16.5,18 12,22 7.5,18 6,13 7.5,8" fill="rgba(200,147,42,0.1)" stroke="rgba(200,147,42,0.5)" stroke-width="1.2" stroke-linejoin="round"/>`}
+  else if(ap>12){cn='НЕТ BOKEH';cd='Aperture закрыта — всё резко';si=`<circle cx="12" cy="12" r="3" fill="rgba(200,147,42,0.2)" stroke="rgba(200,147,42,0.4)" stroke-width="1"/>`}
+  document.getElementById('bk-cname').textContent=cn;
+  document.getElementById('bk-cdesc').textContent=cd;
+  document.getElementById('bk-icon').innerHTML=`<svg viewBox="0 0 24 24">${si}</svg>`;
+}
+
+/* ════════ CAMERA ════════ */
+async function startCam(page){
+  const idle=document.getElementById('idle-'+page);
+  idle.innerHTML=`<div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:3px">Requesting access...</div>`;
+  try{
+    const s=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false
+    });
+    streams[page]=s;
+    document.getElementById('vid-'+page).srcObject=s;
+    idle.classList.add('gone');
+    if(page==='exp'){
+      document.getElementById('vf-exp').addEventListener('click',onExpTap,{once:false});
+      initSliders();
+      updateExp();
+    }
+    if(page==='grid'){
+      resizeGrid();
+    }
+    if(page==='bokeh'){
+      const cb=document.getElementById('cb-bokeh');
+      cb.textContent='■ Disable Camera';cb.classList.remove('off');cb.classList.add('on');
+      updateBokeh();
+    }
+  }catch(e){
+    idle.innerHTML=`
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:rgba(200,60,60,0.8)">✕</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:rgba(255,255,255,0.38);text-align:center;padding:0 28px;line-height:1.8">Доступ запрещён.<br>Открой через HTTPS.</div>`;
+  }
+}
+
+function toggleCam(page){
+  if(streams[page]){
+    streams[page].getTracks().forEach(t=>t.stop());
+    streams[page]=null;
+    document.getElementById('vid-'+page).srcObject=null;
+    const idle=document.getElementById('idle-'+page);
+    idle.classList.remove('gone');
+    idle.innerHTML=`
+      <div class="idle-tag">◈ LENS ◈</div>
+      <div class="idle-title">${page==='grid'?'GRIDS':'BOKEH'}</div>
+      <div class="idle-sub">${page==='grid'?'Choose a grid — see how it frames your shot':'Выбери объектив и крути диафрагму'}</div>
+      <button class="idle-btn" onclick="startCam('${page}')">▶ Enable Camera</button>`;
+    if(document.getElementById('cb-'+page)){
+      const cb=document.getElementById('cb-'+page);
+      cb.textContent='▶ Enable Camera';cb.classList.remove('on');cb.classList.add('off');
+    }
+  }else{startCam(page)}
+}
+
+/* ════════ EXPOSURE TAP TO FOCUS ════════ */
+function onExpTap(e){
+  if(!streams.exp)return;
+  const r=e.currentTarget.getBoundingClientRect();
+  const ring=document.getElementById('focus-ring');
+  ring.style.left=((e.clientX-r.left)/r.width*100)+'%';
+  ring.style.top=((e.clientY-r.top)/r.height*100)+'%';
+  ring.classList.remove('lock');ring.classList.add('show');
+  clearTimeout(focusT);
+  focusT=setTimeout(()=>{ring.classList.add('lock');setTimeout(()=>ring.classList.remove('show','lock'),400)},900);
+}
+
+/* ════════ INFO OVERLAYS ════════ */
+document.getElementById('exp-ib').addEventListener('click',()=>document.getElementById('exp-io').classList.add('show'));
+document.getElementById('exp-ix').addEventListener('click',()=>document.getElementById('exp-io').classList.remove('show'));
+document.getElementById('btn-io').addEventListener('click',()=>document.getElementById('exp-io').classList.remove('show'));
+document.getElementById('grid-ib').addEventListener('click',()=>document.getElementById('grid-io').classList.add('show'));
+document.getElementById('butt-gp').addEventListener('click',()=>document.getElementById('grid-io').classList.remove('show'));
+document.getElementById('grid-ix').addEventListener('click',()=>document.getElementById('grid-io').classList.remove('show'));
+
+/* ════════ GLOSSARY ════════ */
+function toggleGl(termEl){
+  const item=termEl.parentElement;
+  const was=item.classList.contains('open');
+  document.querySelectorAll('.gl-item.open').forEach(i=>i.classList.remove('open'));
+  if(!was)item.classList.add('open');
+}
+
+/* ════════ INIT SLIDERS ════════ */
+function initSliders(){
+  ['sl-iso','sl-ap','sl-sh'].forEach(id=>{
+    const el=document.getElementById(id);
+    const p=(el.value/el.max)*100;
+    el.style.background=`linear-gradient(to right,#c8932a ${p}%,#222018 ${p}%)`;
+  });
+}
+initSliders();
+document.getElementById('sl-bk').style.background='linear-gradient(to right,#c8932a 0%,#222018 0%)';
+
+/* ════════ PWA SERVICE WORKER ════════ */
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    const sw=`
+const C='lens-v1';
+self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.add('/')).catch(()=>{}));self.skipWaiting()});
+self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))));self.clients.claim()});
+self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).catch(()=>r)))});
+`;
+    const url=URL.createObjectURL(new Blob([sw],{type:'application/javascript'}));
+    navigator.serviceWorker.register(url).catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>

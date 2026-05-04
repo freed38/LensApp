@@ -1,0 +1,38 @@
+{
+  "name": "LENS — Camera Simulator",
+  "short_name": "LENS",
+  "description": "Интерактивный симулятор камеры. ISO, диафрагма, выдержка — с живой камерой телефона.",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c0b09",
+  "theme_color": "#0c0b09",
+  "lang": "ru",
+  "categories": ["education", "photo"],
+  "icons": [
+    {
+      "src": "icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Экспозиция",
+      "url": "./#exp",
+      "description": "Симулятор ISO, диафрагмы и выдержки"
+    },
+    {
+      "name": "Сетки",
+      "url": "./#grid",
+      "description": "Сетки композиции"
+    }
+  ]
+}

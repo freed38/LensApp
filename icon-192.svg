@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" fill="#0c0b09" rx="40"/>
+  <!-- Lens circle -->
+  <circle cx="96" cy="96" r="62" fill="none" stroke="#c8932a" stroke-width="3" opacity="0.4"/>
+  <circle cx="96" cy="96" r="42" fill="none" stroke="#c8932a" stroke-width="2" opacity="0.3"/>
+  <!-- L lettermark -->
+  <text x="96" y="122" text-anchor="middle"
+    font-family="'IBM Plex Mono', monospace"
+    font-size="72" font-weight="500"
+    fill="#c8932a" letter-spacing="2">L</text>
+  <!-- Small aperture dots -->
+  <circle cx="96" cy="34" r="3" fill="#c8932a" opacity="0.5"/>
+  <circle cx="96" cy="158" r="3" fill="#c8932a" opacity="0.5"/>
+  <circle cx="34" cy="96" r="3" fill="#c8932a" opacity="0.5"/>
+  <circle cx="158" cy="96" r="3" fill="#c8932a" opacity="0.5"/>
+</svg>
