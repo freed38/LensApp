@@ -275,20 +275,24 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 
 /* ── Update Toast ── */
 #update-toast{
-  position:fixed;bottom:64px;left:12px;right:12px;
-  background:#1a1814;border:1px solid rgba(200,147,42,.4);
-  border-radius:4px;padding:11px 14px;
-  display:flex;align-items:center;justify-content:space-between;gap:10px;
-  z-index:150;
-  transform:translateY(120%);
-  transition:transform .35s cubic-bezier(.34,1.56,.64,1);
-  box-shadow:0 4px 24px rgba(0,0,0,.6);
+  display:none;
+  position:fixed;
+  bottom:68px;left:12px;right:12px;
+  background:#1a1814;
+  border:1px solid rgba(200,147,42,.45);
+  border-radius:4px;
+  padding:11px 14px;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  z-index:9999;
+  box-shadow:0 4px 24px rgba(0,0,0,.7);
 }
-#update-toast.show{transform:translateY(0)}
+#update-toast.show{display:flex}
 .ut-text{font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,.7);letter-spacing:1px}
 .ut-text span{color:#c8932a}
 .ut-btn{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:2px;background:#c8932a;color:#0c0b09;border:none;border-radius:2px;padding:6px 12px;cursor:pointer;white-space:nowrap;font-weight:500}
-.ut-x{font-size:10px;color:rgba(255,255,255,.25);cursor:pointer;padding:4px;flex-shrink:0}
+.ut-x{font-size:14px;color:rgba(255,255,255,.4);cursor:pointer;padding:4px 6px;flex-shrink:0;line-height:1}
 #splash{
   position:fixed;inset:0;
   background:#0c0b09;
