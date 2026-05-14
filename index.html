@@ -1116,10 +1116,20 @@ function dismissToast(){
 }
 function applyUpdate(){
   dismissToast();
+  try{sessionStorage.setItem('lens_just_updated','1');}catch(e){}
   if(window._swReg&&window._swReg.waiting){
     window._swReg.waiting.postMessage({type:'SKIP_WAITING'});
   }
   setTimeout(()=>location.reload(),300);
+}
+function showToast(){
+  try{
+    if(sessionStorage.getItem('lens_just_updated')){
+      sessionStorage.removeItem('lens_just_updated');
+      return;
+    }
+  }catch(e){}
+  showToast();
 }
 
 /* ════════ PWA SERVICE WORKER ════════ */
@@ -1158,13 +1168,13 @@ self.addEventListener('fetch',e=>{
     navigator.serviceWorker.register(url).then(reg=>{
       window._swReg=reg;
       if(reg.waiting){
-        document.getElementById('update-toast').classList.add('show');
+        showToast();
       }
       reg.addEventListener('updatefound',()=>{
         const nw=reg.installing;
         nw.addEventListener('statechange',()=>{
           if(nw.state==='installed'&&navigator.serviceWorker.controller){
-            document.getElementById('update-toast').classList.add('show');
+            showToast();
           }
         });
       });
