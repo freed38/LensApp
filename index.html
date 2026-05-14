@@ -273,7 +273,22 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 /* Scene EV dot */
 .scene-dot{width:5px;height:5px;border-radius:50%;background:#5ac870;display:inline-block;margin-right:4px;box-shadow:0 0 5px rgba(90,200,112,.8)}
 
-/* ── Welcome Splash ── */
+/* ── Update Toast ── */
+#update-toast{
+  position:fixed;bottom:64px;left:12px;right:12px;
+  background:#1a1814;border:1px solid rgba(200,147,42,.4);
+  border-radius:4px;padding:11px 14px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  z-index:150;
+  transform:translateY(120%);
+  transition:transform .35s cubic-bezier(.34,1.56,.64,1);
+  box-shadow:0 4px 24px rgba(0,0,0,.6);
+}
+#update-toast.show{transform:translateY(0)}
+.ut-text{font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,.7);letter-spacing:1px}
+.ut-text span{color:#c8932a}
+.ut-btn{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:2px;background:#c8932a;color:#0c0b09;border:none;border-radius:2px;padding:6px 12px;cursor:pointer;white-space:nowrap;font-weight:500}
+.ut-x{font-size:10px;color:rgba(255,255,255,.25);cursor:pointer;padding:4px;flex-shrink:0}
 #splash{
   position:fixed;inset:0;
   background:#0c0b09;
@@ -550,6 +565,13 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
   <div class="ni"     onclick="goTo('grid')"><div class="ni-i">⊞</div><div class="ni-t">Grids</div></div>
   <div class="ni"     onclick="goTo('bokeh')"><div class="ni-i">◉</div><div class="ni-t">Bokeh</div></div>
   <div class="ni"     onclick="goTo('about')"><div class="ni-i">○</div><div class="ni-t">About</div></div>
+</div>
+
+<!-- ═══════════════════════ UPDATE TOAST ═══════════════════════ -->
+<div id="update-toast">
+  <div class="ut-text">⬆ <span>New version</span> available</div>
+  <button class="ut-btn" onclick="applyUpdate()">Update</button>
+  <div class="ut-x" onclick="dismissToast()">✕</div>
 </div>
 
 </div><!-- #app -->
@@ -1070,10 +1092,10 @@ function dismissSplash(){
   const s=document.getElementById('splash');
   s.classList.add('hide');
   setTimeout(()=>{s.style.display='none'},500);
-  try{localStorage.setItem('lens_seen','1');}catch(e){}
+  try{sessionStorage.setItem('lens_seen','1');}catch(e){}
 }
 (function initSplash(){
-  try{if(localStorage.getItem('lens_seen')){
+  try{if(sessionStorage.getItem('lens_seen')){
     const s=document.getElementById('splash');
     s.style.display='none';
   }}catch(e){}
@@ -1092,17 +1114,70 @@ function resetBokeh(){
   updateBokeh();
 }
 
+/* ════════ UPDATE TOAST ════════ */
+function dismissToast(){
+  document.getElementById('update-toast').classList.remove('show');
+}
+function applyUpdate(){
+  dismissToast();
+  if(window._swReg&&window._swReg.waiting){
+    window._swReg.waiting.postMessage({type:'SKIP_WAITING'});
+  }
+  setTimeout(()=>location.reload(),300);
+}
+
 /* ════════ PWA SERVICE WORKER ════════ */
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
     const sw=`
-const C='lens-v2';
-self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.add('/')).catch(()=>{}));self.skipWaiting()});
-self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))));self.clients.claim()});
-self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).catch(()=>r)))});
+const C='lens-v3';
+self.addEventListener('install',e=>{
+  e.waitUntil(caches.open(C).then(c=>c.add('/').catch(()=>{})));
+  self.skipWaiting();
+});
+self.addEventListener('message',e=>{
+  if(e.data&&e.data.type==='SKIP_WAITING')self.skipWaiting();
+});
+self.addEventListener('activate',e=>{
+  e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))));
+  self.clients.claim();
+});
+self.addEventListener('fetch',e=>{
+  const isDoc=e.request.mode==='navigate'||e.request.destination==='document';
+  if(isDoc){
+    /* network-first for HTML: always fresh, offline fallback */
+    e.respondWith(
+      fetch(e.request).then(r=>{
+        const clone=r.clone();
+        caches.open(C).then(c=>c.put(e.request,clone));
+        return r;
+      }).catch(()=>caches.match(e.request))
+    );
+  }else{
+    e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).catch(()=>r)));
+  }
+});
 `;
     const url=URL.createObjectURL(new Blob([sw],{type:'application/javascript'}));
-    navigator.serviceWorker.register(url).catch(()=>{});
+    navigator.serviceWorker.register(url).then(reg=>{
+      window._swReg=reg;
+      if(reg.waiting){
+        document.getElementById('update-toast').classList.add('show');
+      }
+      reg.addEventListener('updatefound',()=>{
+        const nw=reg.installing;
+        nw.addEventListener('statechange',()=>{
+          if(nw.state==='installed'&&navigator.serviceWorker.controller){
+            document.getElementById('update-toast').classList.add('show');
+          }
+        });
+      });
+    }).catch(()=>{});
+
+    let refreshing=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(!refreshing){refreshing=true;location.reload();}
+    });
   });
 }
 </script>
