@@ -670,7 +670,7 @@ const LENSES=[
 let streams={exp:null,grid:null,bokeh:null};
 let noiseAlpha=0, focusX=50, focusY=50, focusT=null;
 let activeGrid=0, activeLens=0;
-let bokehRafId=null;
+
 
 const noiseC=document.getElementById('noise-c');
 const gridC=document.getElementById('grid-c');
@@ -685,12 +685,16 @@ let sceneEV=0,meterRafId=null,spotNX=0.5,spotNY=0.5,hasRealSensor=null;
 
 /* bokeh capture state */
 let bkState='idle'; // idle | viewfinder | processing | result
-let bkPhoto=null,bkMask=null,bkFocusT=null;
-let mpLoaded=false,mpLoading=false,mpSeg=null;
+let bkPhoto=null,bkFocusT=null;
+let bkFocusNX=0.5,bkFocusNY=0.5; // normalized focus point
 const bkCapC=document.createElement('canvas');
 const bkCapCtx=bkCapC.getContext('2d');
 const bkResC=document.getElementById('bk-canvas');
-const bkResCtx=bkResC.getContext('2d');
+/* WebGL context on display canvas */
+const bkGL=bkResC.getContext('webgl')||bkResC.getContext('experimental-webgl');
+let bkGL=null,bkBokehProg=null,bkChromaProg=null;
+let bkPhotoTex=null,bkFBTex=null,bkFB=null,bkBuf=null;
+let bkGLReady=false,bkGLProg=null,bkGLTex=null; /* legacy compat */
 
 /* ════════ HELPERS ════════ */
 function S(c){c.strokeStyle='#fff';c.lineWidth=1.2;c.globalAlpha=1}
@@ -713,26 +717,172 @@ function drawSpiral(ctx,cw,ch){
   ctx.restore();
 }
 
-/* ════════ MEDIAPIPE LOADER ════════ */
-async function loadMediaPipe(){
-  if(mpLoaded)return;
-  if(mpLoading)return new Promise(r=>setTimeout(()=>loadMediaPipe().then(r),200));
-  mpLoading=true;
-  return new Promise((resolve,reject)=>{
-    const s=document.createElement('script');
-    s.src='https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js';
-    s.crossOrigin='anonymous';
-    s.onload=async()=>{
-      try{
-        mpSeg=new SelfieSegmentation({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${f}`});
-        mpSeg.setOptions({modelSelection:1,selfieMode:false});
-        await mpSeg.initialize();
-        mpLoaded=true;mpLoading=false;resolve();
-      }catch(e){mpLoading=false;reject(e);}
-    };
-    s.onerror=()=>{mpLoading=false;reject(new Error('MP load failed'));};
-    document.head.appendChild(s);
+/* ════════ WEBGL BOKEH ENGINE ════════ */
+const BK_VERT=`attribute vec2 aPos;varying vec2 vUV;void main(){vUV=aPos*0.5+0.5;vUV.y=1.0-vUV.y;gl_Position=vec4(aPos,0.0,1.0);}`;
+
+const BK_FRAG=`
+precision highp float;
+varying vec2 vUV;
+uniform sampler2D uTex;
+uniform vec2 uRes;
+uniform vec2 uFocus;
+uniform float uCoc;
+uniform int uLens;
+
+float hexSDF(vec2 p,float r){vec2 q=abs(p);return max(q.x*0.866+q.y*0.5,q.y)-r;}
+vec2 rot2(vec2 p,float a){return vec2(cos(a)*p.x-sin(a)*p.y,sin(a)*p.x+cos(a)*p.y);}
+
+void main(){
+  vec2 uv=vUV;
+  vec4 orig=texture2D(uTex,uv);
+  float ar=uRes.x/uRes.y;
+  vec2 diff=(uv-uFocus)*vec2(ar,1.0);
+  float dist=length(diff);
+  float coc=clamp(dist*uCoc*min(uRes.x,uRes.y)*0.85,0.0,88.0);
+  if(coc<1.8){gl_FragColor=orig;return;}
+  vec4 col=vec4(0.0);float wSum=0.0;
+  const float PHI=2.3999632;
+  for(int i=0;i<48;i++){
+    float fi=float(i);
+    float r=sqrt(fi/48.0)*coc;
+    float ang=fi*PHI;
+    vec2 off=vec2(cos(ang),sin(ang))*r;
+    float w=0.0;
+    if(uLens==0){
+      /* Canon: smooth cream circle */
+      float nd=length(off)/coc;
+      w=1.0-smoothstep(0.55,1.0,nd);w=max(w,0.06);
+    }else if(uLens==1){
+      /* Helios: swirly — offset rotated by angle*distance-from-center */
+      float swirlA=atan(uv.y-0.5,(uv.x-0.5)*ar);
+      float dc=length((uv-0.5)*vec2(ar,1.0));
+      vec2 sOff=rot2(off,swirlA*dc*2.2);
+      sOff.y*=0.68;
+      float nd=length(sOff)/coc;
+      w=nd<1.0?mix(0.9,0.1,nd):0.0;
+    }else if(uLens==2){
+      /* Leica: very soft dreamy glow */
+      float nd=length(off)/coc;
+      w=exp(-nd*nd*0.8)*0.6+exp(-nd*0.4)*0.4;
+    }else{
+      /* Voigtländer: hard hexagonal */
+      float h=hexSDF(off,coc*0.88);
+      w=h<0.0?1.0+clamp(-h/(coc*0.22),0.0,1.5):0.0;
+    }
+    if(w>0.0){
+      vec2 suv=clamp(uv+off/uRes,0.001,0.999);
+      vec4 s=texture2D(uTex,suv);
+      float lum=dot(s.rgb,vec3(0.299,0.587,0.114));
+      w*=1.0+max(0.0,lum-0.68)*6.0;
+      col+=s*w;wSum+=w;
+    }
+  }
+  gl_FragColor=wSum>0.0?col/wSum:orig;
+}`;
+
+const BK_CHROMA=`
+precision mediump float;
+varying vec2 vUV;
+uniform sampler2D uTex;
+uniform vec2 uFocus;
+uniform float uStr;
+void main(){
+  vec2 d=(vUV-uFocus)*uStr;
+  float r=texture2D(uTex,clamp(vUV+d,0.0,1.0)).r;
+  float g=texture2D(uTex,vUV).g;
+  float b=texture2D(uTex,clamp(vUV-d,0.0,1.0)).b;
+  gl_FragColor=vec4(r,g,b,1.0);
+}`;
+
+function bkShader(gl,type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}return s;}
+function bkProg(gl,vsSrc,fsSrc){const vs=bkShader(gl,gl.VERTEX_SHADER,vsSrc);const fs=bkShader(gl,gl.FRAGMENT_SHADER,fsSrc);if(!vs||!fs)return null;const p=gl.createProgram();gl.attachShader(p,vs);gl.attachShader(p,fs);gl.linkProgram(p);return gl.getProgramParameter(p,gl.LINK_STATUS)?p:null;}
+
+function initBokehGL(w,h){
+  const canvas=document.getElementById('bk-canvas');
+  canvas.width=w;canvas.height=h;
+  bkGL=canvas.getContext('webgl2')||canvas.getContext('webgl');
+  if(!bkGL)return false;
+  const gl=bkGL;
+  bkBokehProg=bkProg(gl,BK_VERT,BK_FRAG);
+  bkChromaProg=bkProg(gl,BK_VERT,BK_CHROMA);
+  if(!bkBokehProg||!bkChromaProg)return false;
+  bkBuf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,bkBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  [bkBokehProg,bkChromaProg].forEach(p=>{
+    gl.useProgram(p);
+    const loc=gl.getAttribLocation(p,'aPos');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
   });
+  bkFBTex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,bkFBTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  bkFB=gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER,bkFB);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,bkFBTex,0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  bkGLReady=true;
+  return true;
+}
+
+function uploadPhotoToGL(){
+  if(!bkGL||!bkPhoto)return;
+  const gl=bkGL;
+  if(!bkPhotoTex)bkPhotoTex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,bkPhotoTex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,bkPhoto);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+}
+
+function runBokehShader(){
+  if(!bkGL||!bkPhotoTex)return;
+  const gl=bkGL;
+  const canvas=document.getElementById('bk-canvas');
+  const w=canvas.width,h=canvas.height;
+  const pct=+document.getElementById('sl-bk').value/100;
+  const l=LENSES[activeLens];
+  const cocScale=(1.0-pct)*0.9;
+  const lensIdx=['canon','helios','leica','voigt'].indexOf(l.id);
+  const chromaStr=l.id==='leica'?0.010:l.id==='canon'?0.004:0.0015;
+
+  /* Pass 1: bokeh kernel → framebuffer */
+  gl.bindFramebuffer(gl.FRAMEBUFFER,bkFB);
+  gl.viewport(0,0,w,h);
+  gl.useProgram(bkBokehProg);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bkBuf);
+  const pl=gl.getAttribLocation(bkBokehProg,'aPos');
+  gl.enableVertexAttribArray(pl);gl.vertexAttribPointer(pl,2,gl.FLOAT,false,0,0);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,bkPhotoTex);
+  const bu=n=>gl.getUniformLocation(bkBokehProg,n);
+  gl.uniform1i(bu('uTex'),0);
+  gl.uniform2f(bu('uRes'),w,h);
+  gl.uniform2f(bu('uFocus'),bkFocusNX,1.0-bkFocusNY);
+  gl.uniform1f(bu('uCoc'),cocScale);
+  gl.uniform1i(bu('uLens'),lensIdx);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+  /* Pass 2: chromatic aberration → screen */
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.viewport(0,0,w,h);
+  gl.useProgram(bkChromaProg);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bkBuf);
+  const cl=gl.getAttribLocation(bkChromaProg,'aPos');
+  gl.enableVertexAttribArray(cl);gl.vertexAttribPointer(cl,2,gl.FLOAT,false,0,0);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,bkFBTex);
+  const cu=n=>gl.getUniformLocation(bkChromaProg,n);
+  gl.uniform1i(cu('uTex'),0);
+  gl.uniform2f(cu('uFocus'),bkFocusNX,1.0-bkFocusNY);
+  gl.uniform1f(cu('uStr'),chromaStr*cocScale*6.0);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
 /* ════════ BOKEH CAPTURE FLOW ════════ */
@@ -743,89 +893,42 @@ function setBkState(s){
   const shutter=document.getElementById('bk-shutter');
   const retake=document.getElementById('bk-retake');
   const dial=document.getElementById('bk-dial-wrap');
-  bkResC.style.display='none';
-  vid.style.display='';
-  proc.style.display='none';
-  shutter.style.display='none';
-  retake.style.display='none';
-  dial.style.opacity='1';
-  dial.style.pointerEvents='';
-  if(s==='viewfinder'){
-    shutter.style.display='flex';
-    dial.style.opacity='0.35';
-    dial.style.pointerEvents='none';
-  }else if(s==='processing'){
-    proc.style.display='flex';
-  }else if(s==='result'){
-    vid.style.display='none';
-    bkResC.style.display='block';
-    retake.style.display='flex';
-  }
+  bkResC.style.display='none';vid.style.display='';
+  proc.style.display='none';shutter.style.display='none';retake.style.display='none';
+  dial.style.opacity='1';dial.style.pointerEvents='';
+  if(s==='viewfinder'){shutter.style.display='flex';dial.style.opacity='0.35';dial.style.pointerEvents='none';}
+  else if(s==='processing'){proc.style.display='flex';}
+  else if(s==='result'){vid.style.display='none';bkResC.style.display='block';retake.style.display='flex';}
 }
 
-async function captureBokeh(){
+function captureBokeh(){
   if(!streams.bokeh||bkState!=='viewfinder')return;
   setBkState('processing');
   const vid=document.getElementById('vid-bokeh');
-  const w=vid.videoWidth||vid.offsetWidth;
-  const h=vid.videoHeight||vid.offsetHeight;
+  const scale=Math.min(1,1280/Math.max(vid.videoWidth||640,vid.videoHeight||480));
+  const w=Math.round((vid.videoWidth||640)*scale);
+  const h=Math.round((vid.videoHeight||480)*scale);
   bkCapC.width=w;bkCapC.height=h;
   bkCapCtx.drawImage(vid,0,0,w,h);
   bkPhoto=bkCapC;
-  try{
-    await loadMediaPipe();
-    let segDone=false;
-    mpSeg.onResults(r=>{
-      bkMask=r.segmentationMask;
-      segDone=true;
-    });
-    await mpSeg.send({image:bkCapC});
-    /* wait for async result */
-    await new Promise(r=>{const t=setInterval(()=>{if(segDone){clearInterval(t);r();}},50);setTimeout(()=>{clearInterval(t);r();},3000);});
-  }catch(e){
-    bkMask=null;
+  if(!bkGLReady){
+    initBokehGL(w,h);
+  }else{
+    const c=document.getElementById('bk-canvas');
+    if(c.width!==w||c.height!==h){
+      c.width=w;c.height=h;
+      if(bkFBTex){bkGL.bindTexture(bkGL.TEXTURE_2D,bkFBTex);bkGL.texImage2D(bkGL.TEXTURE_2D,0,bkGL.RGBA,w,h,0,bkGL.RGBA,bkGL.UNSIGNED_BYTE,null);}
+    }
   }
+  uploadPhotoToGL();
   setBkState('result');
-  renderBokehPhoto();
+  runBokehShader();
 }
 
-function renderBokehPhoto(){
-  if(!bkPhoto)return;
-  const pct=+document.getElementById('sl-bk').value/100;
-  const l=LENSES[activeLens];
-  const lMin=Math.log(l.maxAp),lMax=Math.log(l.minAp);
-  const ap=Math.exp(lMin+pct*(lMax-lMin));
-  const blurPx=l.blur(ap)*3;
-  const w=bkPhoto.width,h=bkPhoto.height;
-  bkResC.width=w;bkResC.height=h;
-
-  if(!bkMask||blurPx<1){
-    bkResCtx.drawImage(bkPhoto,0,0);
-    return;
-  }
-
-  /* 1 — blurred background */
-  const bgC=new OffscreenCanvas(w,h);
-  const bgX=bgC.getContext('2d');
-  bgX.filter=`blur(${blurPx.toFixed(1)}px)`;
-  bgX.drawImage(bkPhoto,0,0);
-  bgX.filter='none';
-  /* lens colour treatment on bg */
-  if(l.id==='helios'){bgX.globalAlpha=0.1;bgX.fillStyle='rgba(255,175,40,1)';bgX.fillRect(0,0,w,h);bgX.globalAlpha=1;}
-  else if(l.id==='leica'){bgX.globalAlpha=0.07;bgX.fillStyle='rgba(180,190,255,1)';bgX.fillRect(0,0,w,h);bgX.globalAlpha=1;}
-  bkResCtx.drawImage(bgC,0,0);
-
-  /* 2 — sharp subject via mask */
-  const subC=new OffscreenCanvas(w,h);
-  const subX=subC.getContext('2d');
-  subX.drawImage(bkMask,0,0,w,h);
-  subX.globalCompositeOperation='source-in';
-  subX.drawImage(bkPhoto,0,0);
-  bkResCtx.drawImage(subC,0,0);
-}
+function renderBokehPhoto(){runBokehShader();}
 
 function retakeBokeh(){
-  bkPhoto=null;bkMask=null;
+  bkPhoto=null;
   setBkState('viewfinder');
 }
 
@@ -833,13 +936,16 @@ function retakeBokeh(){
 function onBokehTap(e){
   if(bkState!=='viewfinder')return;
   const r=e.currentTarget.getBoundingClientRect();
+  bkFocusNX=(e.clientX-r.left)/r.width;
+  bkFocusNY=(e.clientY-r.top)/r.height;
   const ring=document.getElementById('bk-focus-ring');
-  ring.style.left=((e.clientX-r.left)/r.width*100)+'%';
-  ring.style.top=((e.clientY-r.top)/r.height*100)+'%';
+  ring.style.left=(bkFocusNX*100)+'%';
+  ring.style.top=(bkFocusNY*100)+'%';
   ring.classList.remove('lock');ring.classList.add('show');
   clearTimeout(bkFocusT);
   bkFocusT=setTimeout(()=>{ring.classList.add('lock');setTimeout(()=>ring.classList.remove('show','lock'),400);},900);
 }
+
 
 /* ════════ NAV ════════ */
 function goTo(id){
@@ -1055,13 +1161,12 @@ async function startCam(page){
       resizeGrid();
     }
     if(page==='bokeh'){
-      bkPhoto=null;bkMask=null;
+      bkPhoto=null;
       setBkState('viewfinder');
       document.getElementById('vf-bokeh').addEventListener('click',onBokehTap);
       const cb=document.getElementById('cb-bokeh');
       cb.textContent='■ Disable Camera';cb.classList.remove('off');cb.classList.add('on');
       updateBokeh();
-      loadMediaPipe().catch(()=>{});
     }
   }catch(e){
     idle.innerHTML=`
@@ -1072,7 +1177,7 @@ async function startCam(page){
 
 function toggleCam(page){
   if(streams[page]){
-    if(page==='bokeh'){bkPhoto=null;bkMask=null;setBkState('idle');document.getElementById('vf-bokeh').removeEventListener('click',onBokehTap);}
+    if(page==='bokeh'){bkPhoto=null;setBkState('idle');document.getElementById('vf-bokeh').removeEventListener('click',onBokehTap);}
     if(page==='exp'){stopMeterLoop();document.getElementById('h-auto').textContent='';}
     streams[page].getTracks().forEach(t=>t.stop());
     streams[page]=null;
@@ -1240,7 +1345,7 @@ function showToast(){
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
     const sw=`
-const C='lens-v3';
+const C='lens-v4';
 self.addEventListener('install',e=>{
   e.waitUntil(caches.open(C).then(c=>c.add('/').catch(()=>{})));
   self.skipWaiting();
