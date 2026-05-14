@@ -346,7 +346,6 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
     <div class="focus-ring" id="focus-ring"></div>
     <div class="hud-top">
       <span id="h-iso">ISO 100</span>
-      <span class="real-badge" id="h-real">REAL SENSOR</span>
       <span id="h-ap">ƒ/5.6</span>
       <span id="h-sh">1/60s</span>
     </div>
@@ -567,14 +566,14 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
   <div class="ni"     onclick="goTo('about')"><div class="ni-i">○</div><div class="ni-t">About</div></div>
 </div>
 
+</div><!-- #app -->
+
 <!-- ═══════════════════════ UPDATE TOAST ═══════════════════════ -->
 <div id="update-toast">
   <div class="ut-text">⬆ <span>New version</span> available</div>
   <button class="ut-btn" onclick="applyUpdate()">Update</button>
   <div class="ut-x" onclick="dismissToast()">✕</div>
 </div>
-
-</div><!-- #app -->
 
 <script>
 /* ════════ DATA ════════ */
@@ -886,9 +885,6 @@ function updateExp(){
 
     const ov=br>2?Math.min(0.92,(br-2)*0.5):0;
     document.getElementById('overexpose').style.background=`rgba(255,255,255,${ov})`;
-
-    /* apply real camera controls if supported */
-    applyRealCamera(iso,sh.v).catch(()=>{});
   }
 
   document.getElementById('h-iso').textContent='ISO '+iso;
@@ -973,7 +969,7 @@ async function startCam(page){
 function toggleCam(page){
   if(streams[page]){
     if(page==='bokeh')stopBokehLoop();
-    if(page==='exp'){stopMeterLoop();document.getElementById('h-auto').textContent='';document.getElementById('h-real').style.display='none';}
+    if(page==='exp'){stopMeterLoop();document.getElementById('h-auto').textContent='';}
     streams[page].getTracks().forEach(t=>t.stop());
     streams[page]=null;
     document.getElementById('vid-'+page).srcObject=null;
@@ -1075,15 +1071,15 @@ async function applyRealCamera(iso,shutterSec){
   const track=streams.exp.getVideoTracks()[0];
   const caps=track.getCapabilities?track.getCapabilities():{};
   if(caps.iso&&caps.exposureTime){
-    hasRealSensor=true;
-    document.getElementById('h-real').style.display='inline';
+    
+    
     const isoC=Math.round(Math.min(Math.max(iso,caps.iso.min||100),caps.iso.max||3200));
     const expNs=Math.round(shutterSec*1e9);
     const expC=Math.min(Math.max(expNs,caps.exposureTime.min||33333),caps.exposureTime.max||500000000);
     await track.applyConstraints({advanced:[{iso:isoC,exposureTime:expC,exposureMode:'manual'}]}).catch(()=>{});
   }else if(hasRealSensor===null){
     hasRealSensor=false;
-    document.getElementById('h-real').style.display='none';
+    
   }
 }
 
