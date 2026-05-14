@@ -198,6 +198,53 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 .bcn{font-family:'IBM Plex Mono',monospace;font-size:8px;color:rgba(255,255,255,.6);letter-spacing:1px}
 .bcd{font-family:'IBM Plex Sans',monospace;font-size:7.5px;color:rgba(255,255,255,.3);line-height:1.45;font-weight:300}
 
+/* Shutter button */
+.bk-shutter{
+  display:none;
+  position:absolute;bottom:18px;left:50%;transform:translateX(-50%);
+  width:66px;height:66px;border-radius:50%;
+  border:3px solid rgba(255,255,255,.85);background:transparent;
+  cursor:pointer;z-index:10;align-items:center;justify-content:center;
+  -webkit-tap-highlight-color:transparent;
+}
+.bk-shutter::after{
+  content:'';width:54px;height:54px;border-radius:50%;
+  background:rgba(255,255,255,.9);transition:background .15s;display:block;
+}
+.bk-shutter:active::after{background:rgba(200,147,42,.9)}
+
+/* Retake button */
+.bk-retake{
+  display:none;
+  position:absolute;bottom:22px;left:20px;
+  font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:2px;
+  background:rgba(0,0,0,.5);color:rgba(255,255,255,.8);
+  border:1px solid rgba(255,255,255,.25);border-radius:3px;
+  padding:8px 16px;cursor:pointer;z-index:10;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+
+/* Processing overlay */
+.bk-proc{
+  display:none;
+  position:absolute;inset:0;
+  background:rgba(10,9,8,.8);
+  flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  z-index:25;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+}
+.bk-proc-ring{
+  width:44px;height:44px;border-radius:50%;
+  border:2px solid rgba(200,147,42,.2);
+  border-top-color:#c8932a;
+  animation:spin .9s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.bk-proc-text{font-family:'IBM Plex Mono',monospace;font-size:12px;color:rgba(255,255,255,.75);letter-spacing:2px}
+.bk-proc-sub{font-family:'IBM Plex Sans',sans-serif;font-size:10px;color:rgba(255,255,255,.3);font-weight:300}
+
+/* Bokeh dial wrap transition */
+#bk-dial-wrap{transition:opacity .2s}
+
 /* Cam toggle */
 .cam-btn{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:2px;background:transparent;border-radius:2px;padding:7px 0;cursor:pointer;width:calc(100% - 28px);margin:0 14px 9px;text-transform:uppercase;transition:all .2s;display:block}
 .cam-btn.off{color:#4a7a5a;border:1px solid #3a5a42}
@@ -453,37 +500,51 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 <div class="page" id="p-bokeh">
   <div class="vf" id="vf-bokeh">
     <video id="vid-bokeh" autoplay playsinline muted></video>
-    <canvas id="bokeh-c" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;mix-blend-mode:screen"></canvas>
+    <canvas id="bk-canvas" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></canvas>
     <div class="vc tl"></div><div class="vc tr"></div>
     <div class="vc bl"></div><div class="vc br"></div>
+    <div class="focus-ring" id="bk-focus-ring"></div>
     <div class="hud-top">
       <span id="h-bk-lens">CANON 50mm</span>
       <span id="h-bk-ap">ƒ/1.2</span>
     </div>
+    <!-- Processing overlay -->
+    <div class="bk-proc" id="bk-proc">
+      <div class="bk-proc-ring"></div>
+      <div class="bk-proc-text">Analysing scene…</div>
+      <div class="bk-proc-sub">Separating subject from background</div>
+    </div>
+    <!-- Shutter button -->
+    <button class="bk-shutter" id="bk-shutter" onclick="captureBokeh()"></button>
+    <!-- Retake button -->
+    <button class="bk-retake" id="bk-retake" onclick="retakeBokeh()">↺ Retake</button>
+    <!-- Idle -->
     <div class="idle" id="idle-bokeh">
       <div class="idle-tag">◈ LENS ◈</div>
       <div class="idle-title">BOKEH</div>
-      <div class="idle-sub">Choose a lens and adjust aperture<br>See how the background blurs</div>
+      <div class="idle-sub">Shoot a photo — see how different<br>lenses blur the background</div>
       <button class="idle-btn" onclick="startCam('bokeh')">▶ Enable Camera</button>
     </div>
   </div>
   <div class="panel">
     <div class="bk-panel">
       <div class="lens-row" id="lens-sel"></div>
-      <div class="bk-dial">
-        <div class="bk-hdr">
-          <span class="dl">Aperture</span>
-          <span class="bk-val" id="bk-val">ƒ/1.2</span>
-          <button class="rst-btn" onclick="resetBokeh()">Reset</button>
+      <div id="bk-dial-wrap">
+        <div class="bk-dial">
+          <div class="bk-hdr">
+            <span class="dl">Aperture</span>
+            <span class="bk-val" id="bk-val">ƒ/1.2</span>
+            <button class="rst-btn" onclick="resetBokeh()">Reset</button>
+          </div>
+          <div class="bk-marks" id="bk-marks"></div>
+          <input type="range" id="sl-bk" min="0" max="100" value="0" oninput="updateBokeh()">
         </div>
-        <div class="bk-marks" id="bk-marks"></div>
-        <input type="range" id="sl-bk" min="0" max="100" value="0" oninput="updateBokeh()">
-      </div>
-      <div class="bk-char">
-        <div class="bci" id="bk-icon"></div>
-        <div class="bct">
-          <div class="bcn" id="bk-cname">CREAMY · ROUND</div>
-          <div class="bcd" id="bk-cdesc">Silky smooth circles, warm amber glow</div>
+        <div class="bk-char">
+          <div class="bci" id="bk-icon"></div>
+          <div class="bct">
+            <div class="bcn" id="bk-cname">CREAMY · ROUND</div>
+            <div class="bcd" id="bk-cdesc">Silky smooth circles, warm amber glow</div>
+          </div>
         </div>
       </div>
     </div>
@@ -613,18 +674,23 @@ let bokehRafId=null;
 
 const noiseC=document.getElementById('noise-c');
 const gridC=document.getElementById('grid-c');
-const bokehC=document.getElementById('bokeh-c');
 const nCtx=noiseC.getContext('2d');
 const gCtx=gridC.getContext('2d');
-const bokehCtx=bokehC.getContext('2d');
-const bkTmp=document.createElement('canvas');
-const bkTmpCtx=bkTmp.getContext('2d',{willReadFrequently:true});
 const meterC=document.createElement('canvas');
 const meterCtx=meterC.getContext('2d',{willReadFrequently:true});
 meterC.width=64;meterC.height=48;
 
 /* scene metering state */
-let sceneEV=0, meterRafId=null, spotNX=0.5, spotNY=0.5, hasRealSensor=false;
+let sceneEV=0,meterRafId=null,spotNX=0.5,spotNY=0.5,hasRealSensor=null;
+
+/* bokeh capture state */
+let bkState='idle'; // idle | viewfinder | processing | result
+let bkPhoto=null,bkMask=null,bkFocusT=null;
+let mpLoaded=false,mpLoading=false,mpSeg=null;
+const bkCapC=document.createElement('canvas');
+const bkCapCtx=bkCapC.getContext('2d');
+const bkResC=document.getElementById('bk-canvas');
+const bkResCtx=bkResC.getContext('2d');
 
 /* ════════ HELPERS ════════ */
 function S(c){c.strokeStyle='#fff';c.lineWidth=1.2;c.globalAlpha=1}
@@ -647,102 +713,132 @@ function drawSpiral(ctx,cw,ch){
   ctx.restore();
 }
 
-/* ════════ BOKEH SHAPES — per-lens canvas renderers ════════ */
-const BOKEH_SHAPES={
-  /* Canon 50mm — creamy round circles, warm amber falloff */
-  canon:(ctx,x,y,r,a)=>{
-    const g=ctx.createRadialGradient(x,y,0,x,y,r);
-    g.addColorStop(0,  `rgba(255,248,215,${Math.min(1,a*0.6).toFixed(3)})`);
-    g.addColorStop(0.5,`rgba(255,232,185,${Math.min(1,a*0.3).toFixed(3)})`);
-    g.addColorStop(1,  'rgba(255,215,155,0)');
-    ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
-  },
-  /* Helios 44-2 — swirly ellipses that rotate by angle from center */
-  helios:(ctx,x,y,r,a,cw,ch)=>{
-    const ang=Math.atan2(y-ch*0.5,x-cw*0.5);
-    const dist=Math.min(1,Math.hypot(x-cw*0.5,y-ch*0.5)/(Math.min(cw,ch)*0.45));
-    ctx.save();ctx.translate(x,y);ctx.rotate(ang*dist*0.5);ctx.scale(1,0.72+dist*0.18);
-    const g=ctx.createRadialGradient(0,0,r*0.12,0,0,r);
-    g.addColorStop(0,   `rgba(255,215,80,${Math.min(1,a*0.07).toFixed(3)})`);
-    g.addColorStop(0.55,`rgba(255,185,45,${Math.min(1,a*0.38).toFixed(3)})`);
-    g.addColorStop(0.88,`rgba(255,158,15,${Math.min(1,a*0.58).toFixed(3)})`);
-    g.addColorStop(1,   'rgba(255,135,0,0)');
-    ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.fill();ctx.restore();
-  },
-  /* Leica Noctilux — dreamy chromatic aberration, no hard edges */
-  leica:(ctx,x,y,r,a)=>{
-    const av=Math.min(1,a*0.5);
-    const gb=ctx.createRadialGradient(x+r*0.07,y,0,x+r*0.07,y,r*1.55);
-    gb.addColorStop(0,  `rgba(155,175,255,${(av*0.52).toFixed(3)})`);
-    gb.addColorStop(0.5,`rgba(135,155,245,${(av*0.2).toFixed(3)})`);
-    gb.addColorStop(1,  'rgba(115,135,225,0)');
-    ctx.fillStyle=gb;ctx.beginPath();ctx.arc(x+r*0.07,y,r*1.55,0,Math.PI*2);ctx.fill();
-    const gp=ctx.createRadialGradient(x-r*0.07,y,0,x-r*0.07,y,r*1.3);
-    gp.addColorStop(0,  `rgba(255,185,205,${(av*0.52).toFixed(3)})`);
-    gp.addColorStop(0.5,`rgba(240,165,185,${(av*0.2).toFixed(3)})`);
-    gp.addColorStop(1,  'rgba(220,145,165,0)');
-    ctx.fillStyle=gp;ctx.beginPath();ctx.arc(x-r*0.07,y,r*1.3,0,Math.PI*2);ctx.fill();
-    const gw=ctx.createRadialGradient(x,y,0,x,y,r*0.85);
-    gw.addColorStop(0,  `rgba(255,255,255,${(av*0.7).toFixed(3)})`);
-    gw.addColorStop(0.5,`rgba(240,242,255,${(av*0.22).toFixed(3)})`);
-    gw.addColorStop(1,  'rgba(230,232,255,0)');
-    ctx.fillStyle=gw;ctx.beginPath();ctx.arc(x,y,r*0.85,0,Math.PI*2);ctx.fill();
-  },
-  /* Voigtländer 35mm — hard-edged rings, sharp donut bokeh */
-  voigt:(ctx,x,y,r,a)=>{
-    const av=Math.min(1,a*0.95);
-    ctx.strokeStyle=`rgba(255,255,225,${(av*0.92).toFixed(3)})`;
-    ctx.lineWidth=Math.max(1.2,r*0.12);
-    ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.stroke();
-    ctx.strokeStyle=`rgba(255,255,210,${(av*0.32).toFixed(3)})`;
-    ctx.lineWidth=Math.max(0.7,r*0.055);
-    ctx.beginPath();ctx.arc(x,y,r*0.62,0,Math.PI*2);ctx.stroke();
-    const g=ctx.createRadialGradient(x,y,0,x,y,r*0.52);
-    g.addColorStop(0,`rgba(255,255,225,${(av*0.04).toFixed(3)})`);
-    g.addColorStop(1,'rgba(255,255,210,0)');
-    ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r*0.52,0,Math.PI*2);ctx.fill();
-  }
-};
+/* ════════ MEDIAPIPE LOADER ════════ */
+async function loadMediaPipe(){
+  if(mpLoaded)return;
+  if(mpLoading)return new Promise(r=>setTimeout(()=>loadMediaPipe().then(r),200));
+  mpLoading=true;
+  return new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js';
+    s.crossOrigin='anonymous';
+    s.onload=async()=>{
+      try{
+        mpSeg=new SelfieSegmentation({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${f}`});
+        mpSeg.setOptions({modelSelection:1,selfieMode:false});
+        await mpSeg.initialize();
+        mpLoaded=true;mpLoading=false;resolve();
+      }catch(e){mpLoading=false;reject(e);}
+    };
+    s.onerror=()=>{mpLoading=false;reject(new Error('MP load failed'));};
+    document.head.appendChild(s);
+  });
+}
 
-/* ════════ BOKEH CANVAS LOOP ════════ */
-function startBokehLoop(){
-  if(bokehRafId)return;
-  bokehRafId=requestAnimationFrame(bokehFrame);
+/* ════════ BOKEH CAPTURE FLOW ════════ */
+function setBkState(s){
+  bkState=s;
+  const vid=document.getElementById('vid-bokeh');
+  const proc=document.getElementById('bk-proc');
+  const shutter=document.getElementById('bk-shutter');
+  const retake=document.getElementById('bk-retake');
+  const dial=document.getElementById('bk-dial-wrap');
+  bkResC.style.display='none';
+  vid.style.display='';
+  proc.style.display='none';
+  shutter.style.display='none';
+  retake.style.display='none';
+  dial.style.opacity='1';
+  dial.style.pointerEvents='';
+  if(s==='viewfinder'){
+    shutter.style.display='flex';
+    dial.style.opacity='0.35';
+    dial.style.pointerEvents='none';
+  }else if(s==='processing'){
+    proc.style.display='flex';
+  }else if(s==='result'){
+    vid.style.display='none';
+    bkResC.style.display='block';
+    retake.style.display='flex';
+  }
 }
-function stopBokehLoop(){
-  if(bokehRafId){cancelAnimationFrame(bokehRafId);bokehRafId=null;}
-  bokehCtx.clearRect(0,0,bokehC.width,bokehC.height);
+
+async function captureBokeh(){
+  if(!streams.bokeh||bkState!=='viewfinder')return;
+  setBkState('processing');
+  const vid=document.getElementById('vid-bokeh');
+  const w=vid.videoWidth||vid.offsetWidth;
+  const h=vid.videoHeight||vid.offsetHeight;
+  bkCapC.width=w;bkCapC.height=h;
+  bkCapCtx.drawImage(vid,0,0,w,h);
+  bkPhoto=bkCapC;
+  try{
+    await loadMediaPipe();
+    let segDone=false;
+    mpSeg.onResults(r=>{
+      bkMask=r.segmentationMask;
+      segDone=true;
+    });
+    await mpSeg.send({image:bkCapC});
+    /* wait for async result */
+    await new Promise(r=>{const t=setInterval(()=>{if(segDone){clearInterval(t);r();}},50);setTimeout(()=>{clearInterval(t);r();},3000);});
+  }catch(e){
+    bkMask=null;
+  }
+  setBkState('result');
+  renderBokehPhoto();
 }
-function bokehFrame(){
-  if(!streams.bokeh){bokehRafId=null;return;}
-  const vf=document.getElementById('vf-bokeh');
-  const cw=vf.offsetWidth,ch=vf.offsetHeight;
-  if(bokehC.width!==cw)bokehC.width=cw;
-  if(bokehC.height!==ch)bokehC.height=ch;
+
+function renderBokehPhoto(){
+  if(!bkPhoto)return;
   const pct=+document.getElementById('sl-bk').value/100;
   const l=LENSES[activeLens];
-  const bokehR=(1-pct)*cw*0.065+cw*0.013;
-  bokehCtx.clearRect(0,0,cw,ch);
-  if(bokehR<cw*0.018){bokehRafId=requestAnimationFrame(bokehFrame);return;}
-  const sw=72,sh=54;
-  bkTmp.width=sw;bkTmp.height=sh;
-  try{bkTmpCtx.drawImage(document.getElementById('vid-bokeh'),0,0,sw,sh);}
-  catch(e){bokehRafId=requestAnimationFrame(bokehFrame);return;}
-  const px=bkTmpCtx.getImageData(0,0,sw,sh).data;
-  const thresh=185,step=3;
-  const renderFn=BOKEH_SHAPES[l.id];
-  for(let sy=0;sy<sh;sy+=step){
-    for(let sx=0;sx<sw;sx+=step){
-      const i=(sy*sw+sx)*4;
-      const lum=px[i]*0.299+px[i+1]*0.587+px[i+2]*0.114;
-      if(lum>thresh){
-        const x=(sx/sw)*cw,y=(sy/sh)*ch;
-        const a=Math.pow((lum-thresh)/(255-thresh),1.1);
-        renderFn(bokehCtx,x,y,bokehR*(0.6+a*0.6),a*0.78,cw,ch);
-      }
-    }
+  const lMin=Math.log(l.maxAp),lMax=Math.log(l.minAp);
+  const ap=Math.exp(lMin+pct*(lMax-lMin));
+  const blurPx=l.blur(ap)*3;
+  const w=bkPhoto.width,h=bkPhoto.height;
+  bkResC.width=w;bkResC.height=h;
+
+  if(!bkMask||blurPx<1){
+    bkResCtx.drawImage(bkPhoto,0,0);
+    return;
   }
-  bokehRafId=requestAnimationFrame(bokehFrame);
+
+  /* 1 — blurred background */
+  const bgC=new OffscreenCanvas(w,h);
+  const bgX=bgC.getContext('2d');
+  bgX.filter=`blur(${blurPx.toFixed(1)}px)`;
+  bgX.drawImage(bkPhoto,0,0);
+  bgX.filter='none';
+  /* lens colour treatment on bg */
+  if(l.id==='helios'){bgX.globalAlpha=0.1;bgX.fillStyle='rgba(255,175,40,1)';bgX.fillRect(0,0,w,h);bgX.globalAlpha=1;}
+  else if(l.id==='leica'){bgX.globalAlpha=0.07;bgX.fillStyle='rgba(180,190,255,1)';bgX.fillRect(0,0,w,h);bgX.globalAlpha=1;}
+  bkResCtx.drawImage(bgC,0,0);
+
+  /* 2 — sharp subject via mask */
+  const subC=new OffscreenCanvas(w,h);
+  const subX=subC.getContext('2d');
+  subX.drawImage(bkMask,0,0,w,h);
+  subX.globalCompositeOperation='source-in';
+  subX.drawImage(bkPhoto,0,0);
+  bkResCtx.drawImage(subC,0,0);
+}
+
+function retakeBokeh(){
+  bkPhoto=null;bkMask=null;
+  setBkState('viewfinder');
+}
+
+/* tap-to-focus on bokeh viewfinder */
+function onBokehTap(e){
+  if(bkState!=='viewfinder')return;
+  const r=e.currentTarget.getBoundingClientRect();
+  const ring=document.getElementById('bk-focus-ring');
+  ring.style.left=((e.clientX-r.left)/r.width*100)+'%';
+  ring.style.top=((e.clientY-r.top)/r.height*100)+'%';
+  ring.classList.remove('lock');ring.classList.add('show');
+  clearTimeout(bkFocusT);
+  bkFocusT=setTimeout(()=>{ring.classList.add('lock');setTimeout(()=>ring.classList.remove('show','lock'),400);},900);
 }
 
 /* ════════ NAV ════════ */
@@ -926,7 +1022,8 @@ function updateBokeh(){
   document.getElementById('h-bk-ap').textContent='ƒ/'+ap;
   document.getElementById('h-bk-lens').textContent=l.name.replace('\n',' ').toUpperCase();
 
-  if(streams.bokeh) document.getElementById('vid-bokeh').style.filter=`blur(${l.blur(ap).toFixed(1)}px)`;
+  /* re-render photo if in result state */
+  if(bkState==='result')renderBokehPhoto();
 
   let cn=l.cn,cd=l.cd,si=l.svgI;
   if(ap>6&&ap<=12){cn='POLYGONAL';cd='Aperture blade shape visible in highlights';si=`<polygon points="12,4 16.5,8 18,13 16.5,18 12,22 7.5,18 6,13 7.5,8" fill="rgba(200,147,42,0.1)" stroke="rgba(200,147,42,0.5)" stroke-width="1.2" stroke-linejoin="round"/>`}
@@ -958,10 +1055,13 @@ async function startCam(page){
       resizeGrid();
     }
     if(page==='bokeh'){
+      bkPhoto=null;bkMask=null;
+      setBkState('viewfinder');
+      document.getElementById('vf-bokeh').addEventListener('click',onBokehTap);
       const cb=document.getElementById('cb-bokeh');
       cb.textContent='■ Disable Camera';cb.classList.remove('off');cb.classList.add('on');
       updateBokeh();
-      startBokehLoop();
+      loadMediaPipe().catch(()=>{});
     }
   }catch(e){
     idle.innerHTML=`
@@ -972,7 +1072,7 @@ async function startCam(page){
 
 function toggleCam(page){
   if(streams[page]){
-    if(page==='bokeh')stopBokehLoop();
+    if(page==='bokeh'){bkPhoto=null;bkMask=null;setBkState('idle');document.getElementById('vf-bokeh').removeEventListener('click',onBokehTap);}
     if(page==='exp'){stopMeterLoop();document.getElementById('h-auto').textContent='';}
     streams[page].getTracks().forEach(t=>t.stop());
     streams[page]=null;
@@ -982,7 +1082,7 @@ function toggleCam(page){
     idle.innerHTML=`
       <div class="idle-tag">◈ LENS ◈</div>
       <div class="idle-title">${page==='grid'?'GRIDS':'BOKEH'}</div>
-      <div class="idle-sub">${page==='grid'?'Choose a grid — see how it frames your shot':'Choose a lens and adjust aperture'}</div>
+      <div class="idle-sub">${page==='grid'?'Choose a grid — see how it frames your shot':'Shoot a photo — see how lenses blur the background'}</div>
       <button class="idle-btn" onclick="startCam('${page}')">▶ Enable Camera</button>`;
     if(document.getElementById('cb-'+page)){
       const cb=document.getElementById('cb-'+page);
